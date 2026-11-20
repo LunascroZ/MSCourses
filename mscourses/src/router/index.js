@@ -9,18 +9,15 @@ const routes = [
   { path: '/', redirect: '/draft' },
   { path: '/draft', name: 'Draft', component: DraftList },
   { path: '/shopping', name: 'Shopping', component: ShoppingList },
-  { path: '/stock', name: 'Stock', component: Stock  },
+  { path: '/stock', name: 'Stock', component: Stock },
   { path: '/history', name: 'History', component: History },
-  {
-    path: '/bonus',
-    name: 'BonusInsights',
-    component: BonusInsights,
-  },
+  { path: '/bonus', name: 'Bonus', component: BonusInsights },
+  { path: '/:pathMatch(.*)*', redirect: '/draft' },
 ]
 
 const router = createRouter({
   history: createWebHistory(),
-  routes
+  routes,
 })
 
 export default router
