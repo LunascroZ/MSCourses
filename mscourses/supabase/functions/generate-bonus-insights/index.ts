@@ -138,48 +138,69 @@ Génère le JSON suivant :
   }
 }`;
 
-    const CANDIDATE_MODELS = [
-      { name: "gemini-3.6-flash", timeoutMs: 45000 },
-      { name: "gemini-3.8-flash", timeoutMs: 45000 },
-    ];
+const CANDIDATE_MODELS = [
+  {
+    name: "gemini-2.5-flash",
+    timeoutMs: 22000,
+    generationConfig: {
+      temperature: 0.4,
+      maxOutputTokens: 1500,
+      responseMimeType: "application/json",
+      thinkingConfig: { thinkingBudget: 0 },
+    },
+  },
+  {
+    name: "gemini-2.0-flash",
+    timeoutMs: 20000,
+    generationConfig: {
+      temperature: 0.4,
+      maxOutputTokens: 1500,
+      responseMimeType: "application/json",
+    },
+  },
+];
 
-    let geminiData: GeminiGenerateResponse | null = null;
-    let firstDetailedError = "";
+let geminiData: GeminiGenerateResponse | null = null;
+let firstDetailedError = "";
 
-    for (const cfg of CANDIDATE_MODELS) {
-      try {
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${cfg.name}:generateContent?key=${geminiApiKey}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            signal: AbortSignal.timeout(cfg.timeoutMs),
-            body: JSON.stringify({
-              systemInstruction: { parts: [{ text: systemInstruction }] },
-              contents: [{ role: "user", parts: [{ text: userPrompt }] }],
-              generationConfig: {
-                temperature: 0.4,
-                responseMimeType: "application/json",
-                thinkingConfig: { thinkingLevel: "low" },
-              },
-            }),
-          }
-        );
+for (const cfg of CANDIDATE_MODELS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), cfg.timeoutMs);
 
-        if (res.ok) {
-          geminiData = (await res.json()) as GeminiGenerateResponse;
-          break;
-        }
-
-        const errText = await res.text();
-        const formattedErr = `[${cfg.name} -> ${res.status}] ${errText}`;
-        if (!firstDetailedError) firstDetailedError = formattedErr;
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        const formattedErr = `[${cfg.name} -> exception] ${msg}`;
-        if (!firstDetailedError) firstDetailedError = formattedErr;
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${cfg.name}:generateContent?key=${geminiApiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: systemInstruction }] },
+          contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+          generationConfig: cfg.generationConfig,
+        }),
       }
+    );
+
+    if (res.ok) {
+      geminiData = (await res.json()) as GeminiGenerateResponse;
+      break;
     }
+
+    const errText = await res.text();
+    const formattedErr = `[${cfg.name} -> ${res.status}] ${errText}`;
+    console.error(formattedErr);
+    if (!firstDetailedError) firstDetailedError = formattedErr;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const formattedErr = `[${cfg.name} -> exception] ${msg}`;
+    console.error(formattedErr);
+    if (!firstDetailedError) firstDetailedError = formattedErr;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 
     if (!geminiData) {
       throw new Error(`Échec génération bons plans : ${firstDetailedError}`);
