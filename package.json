@@ -1,0 +1,11 @@
+{
+  "dependencies": {
+    "@lucide/vue": "^1.75.0",
+    "@supabase/supabase-js": "^2.119.1",
+    "@tailwindcss/vite": "^4.3.5",
+    "lucide-vue-next": "^1.0.0",
+    "tailwindcss": "^4.3.5",
+    "vite-plugin-pwa": "^2.0.0",
+    "vue-router": "^5.5.1"
+  }
+}
