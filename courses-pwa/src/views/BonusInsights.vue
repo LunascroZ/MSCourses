@@ -1,165 +1,98 @@
 <template>
-    <div class="p-4 pb-28 text-slate-100 min-h-screen bg-slate-900">
-      <!-- En-tête -->
-      <div class="flex items-center justify-between gap-3 mb-5">
+    <div class="bonus-page">
+      <div class="page-head">
         <div>
-          <h1 class="text-2xl font-bold">Bons Plans & Macros</h1>
-          <p class="text-xs text-slate-400 mt-0.5">
-            Secteur : {{ activeSector }}
-            <span v-if="lastUpdated"> • Mis à jour {{ lastUpdated }}</span>
-          </p>
+          <h2>Bons Plans & Macros</h2>
+          <span v-if="lastUpdated" class="sub-meta">Mis à jour {{ lastUpdated }}</span>
         </div>
         <button
-          @click="generateInsights"
+          type="button"
+          class="ai-btn"
           :disabled="isGenerating"
-          class="px-3.5 py-2 text-xs font-bold bg-gradient-to-r from-purple-600 to-blue-600 hover:opacity-95 disabled:opacity-50 rounded-xl shadow transition-opacity shrink-0"
+          @click="generateInsights"
         >
           {{ isGenerating ? '⏳ Analyse...' : '✨ Actualiser IA' }}
         </button>
       </div>
   
-      <!-- Sous-navigation interne -->
-      <div class="grid grid-cols-2 gap-2 p-1 bg-slate-800 border border-slate-700 rounded-xl mb-6">
+      <!-- Segmented control interne -->
+      <div class="segmented">
         <button
+          type="button"
+          class="seg-btn"
+          :class="{ active: activeSubTab === 'deals' }"
           @click="activeSubTab = 'deals'"
-          class="py-2 text-xs font-bold rounded-lg transition-colors"
-          :class="activeSubTab === 'deals' ? 'bg-slate-900 text-blue-400 shadow' : 'text-slate-400'"
         >
-          🎯 Bons Plans (3)
+          🎯 Bons Plans
         </button>
         <button
+          type="button"
+          class="seg-btn"
+          :class="{ active: activeSubTab === 'recipes' }"
           @click="activeSubTab = 'recipes'"
-          class="py-2 text-xs font-bold rounded-lg transition-colors"
-          :class="activeSubTab === 'recipes' ? 'bg-slate-900 text-emerald-400 shadow' : 'text-slate-400'"
         >
-          🥗 Recettes Sèche (3)
+          🥗 Recettes Sèche
         </button>
       </div>
   
-      <!-- État vide -->
-      <div
-        v-if="!insights && !isGenerating"
-        class="text-center py-12 px-4 bg-slate-800/50 border border-slate-800 rounded-2xl text-slate-400"
-      >
-        <p class="font-medium text-slate-200 mb-1">Aucune veille générée pour le moment</p>
-        <p class="text-xs mb-4">
-          Lance l'analyse IA pour croiser ton stock, ton panier et les promos du secteur.
-        </p>
-        <button
-          @click="generateInsights"
-          class="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl"
-        >
-          ✨ Générer les Bons Plans & Recettes
+      <div v-if="!insights && !isGenerating" class="ms-card empty-card">
+        <p class="empty-title">Aucune veille générée</p>
+        <p class="empty-sub">Lance l'analyse IA pour croiser ton stock, ton panier et le secteur.</p>
+        <button type="button" class="ai-btn mt-btn" @click="generateInsights">
+          ✨ Générer maintenant
         </button>
       </div>
   
-      <!-- ONGLET 1 : BONS PLANS OPPORTUNISTES -->
-      <div v-if="insights && activeSubTab === 'deals'" class="space-y-4">
-        <!-- 1. Opportunité Alimentaire -->
-        <div
-          v-if="insights.opportunistic_deals?.food"
-          class="bg-slate-800/80 border border-slate-700 rounded-2xl p-4 space-y-2"
-        >
-          <div class="flex items-center justify-between gap-2">
-            <span class="text-[11px] font-bold uppercase tracking-wider text-emerald-400">
-              🥩 Opportunité Protéines / Anti-Gaspi
-            </span>
-            <span class="text-xs font-bold bg-emerald-950 text-emerald-300 border border-emerald-800 px-2.5 py-0.5 rounded-lg">
-              {{ insights.opportunistic_deals.food.estimated_price }}
-            </span>
+      <!-- BONS PLANS -->
+      <div v-if="insights && activeSubTab === 'deals'" class="cards-stack">
+        <section v-if="insights.opportunistic_deals?.food" class="ms-card deal-card accent-green">
+          <div class="deal-top">
+            <span class="deal-tag green">🥩 Protéines & Anti-Gaspi</span>
+            <span class="price-pill">{{ insights.opportunistic_deals.food.estimated_price }}</span>
           </div>
-          <h2 class="text-base font-bold text-white">
-            {{ insights.opportunistic_deals.food.title }}
-          </h2>
-          <p class="text-xs text-blue-300 font-medium">
-            📍 {{ insights.opportunistic_deals.food.store }}
-          </p>
-          <p class="text-xs text-slate-300 leading-relaxed">
-            {{ insights.opportunistic_deals.food.details }}
-          </p>
-        </div>
+          <h3>{{ insights.opportunistic_deals.food.title }}</h3>
+          <p class="store-line">📍 {{ insights.opportunistic_deals.food.store }}</p>
+          <p class="deal-desc">{{ insights.opportunistic_deals.food.details }}</p>
+        </section>
   
-        <!-- 2. Opportunité Tech / Maison Action -->
-        <div
-          v-if="insights.opportunistic_deals?.tech_home"
-          class="bg-slate-800/80 border border-slate-700 rounded-2xl p-4 space-y-2"
-        >
-          <div class="flex items-center justify-between gap-2">
-            <span class="text-[11px] font-bold uppercase tracking-wider text-sky-400">
-              🔌 Pépite Tech & Maison
-            </span>
-            <span class="text-xs font-bold bg-sky-950 text-sky-300 border border-sky-800 px-2.5 py-0.5 rounded-lg">
-              {{ insights.opportunistic_deals.tech_home.estimated_price }}
-            </span>
+        <section v-if="insights.opportunistic_deals?.tech_home" class="ms-card deal-card accent-blue">
+          <div class="deal-top">
+            <span class="deal-tag blue">🔌 Pépite Tech & Maison</span>
+            <span class="price-pill">{{ insights.opportunistic_deals.tech_home.estimated_price }}</span>
           </div>
-          <h2 class="text-base font-bold text-white">
-            {{ insights.opportunistic_deals.tech_home.title }}
-          </h2>
-          <p class="text-xs text-blue-300 font-medium">
-            📍 {{ insights.opportunistic_deals.tech_home.store }}
-          </p>
-          <p class="text-xs text-slate-300 leading-relaxed">
-            {{ insights.opportunistic_deals.tech_home.details }}
-          </p>
-        </div>
+          <h3>{{ insights.opportunistic_deals.tech_home.title }}</h3>
+          <p class="store-line">📍 {{ insights.opportunistic_deals.tech_home.store }}</p>
+          <p class="deal-desc">{{ insights.opportunistic_deals.tech_home.details }}</p>
+        </section>
   
-        <!-- 3. Veille Cafetière Barista à Grains -->
-        <div
-          v-if="insights.opportunistic_deals?.coffee_barista"
-          class="bg-slate-800/80 border border-amber-700/60 rounded-2xl p-4 space-y-2.5"
-        >
-          <span class="text-[11px] font-bold uppercase tracking-wider text-amber-400">
-            ☕ Veille Machine Barista à Grains
-          </span>
-          <h2 class="text-base font-bold text-white">
-            {{ insights.opportunistic_deals.coffee_barista.target_models }}
-          </h2>
-          <p class="text-xs text-slate-200 leading-relaxed">
-            {{ insights.opportunistic_deals.coffee_barista.deal_watch }}
-          </p>
-          <div class="text-xs text-amber-200 bg-amber-950/50 border border-amber-800/70 p-2.5 rounded-xl">
-            📊 <span class="font-semibold">Rentabilité :</span>
-            {{ insights.opportunistic_deals.coffee_barista.roi_note }}
+        <section v-if="insights.opportunistic_deals?.coffee_barista" class="ms-card deal-card accent-amber">
+          <span class="deal-tag amber">☕ Veille Cafetière à Grains</span>
+          <h3>{{ insights.opportunistic_deals.coffee_barista.target_models }}</h3>
+          <p class="deal-desc">{{ insights.opportunistic_deals.coffee_barista.deal_watch }}</p>
+          <div class="roi-box">
+            📊 <strong>Rentabilité :</strong> {{ insights.opportunistic_deals.coffee_barista.roi_note }}
           </div>
-        </div>
+        </section>
       </div>
   
-      <!-- ONGLET 2 : RECETTES MACRO-FRIENDLY -->
-      <div v-if="insights && activeSubTab === 'recipes'" class="space-y-4">
-        <div
-          v-for="recipe in recipeCards"
-          :key="recipe.key"
-          class="bg-slate-800/80 border border-slate-700 rounded-2xl p-4 space-y-2.5"
-        >
-          <div class="flex flex-wrap items-center justify-between gap-2">
-            <span class="text-[11px] font-bold uppercase tracking-wider" :class="recipe.badgeColor">
-              {{ recipe.tag }}
-            </span>
-            <span class="text-[11px] bg-slate-900 border border-slate-700 px-2.5 py-0.5 rounded-lg text-slate-300 font-medium">
-              ⏱️ {{ recipe.data.prep_time }}
-            </span>
+      <!-- RECETTES -->
+      <div v-if="insights && activeSubTab === 'recipes'" class="cards-stack">
+        <section v-for="recipe in recipeCards" :key="recipe.key" class="ms-card deal-card">
+          <div class="deal-top">
+            <span class="deal-tag" :class="recipe.color">{{ recipe.tag }}</span>
+            <span class="time-pill">⏱️ {{ recipe.data.prep_time }}</span>
           </div>
+          <h3>{{ recipe.data.title }}</h3>
+          <div class="macro-pill">{{ recipe.data.macros }}</div>
   
-          <h2 class="text-base font-bold text-white">{{ recipe.data.title }}</h2>
-  
-          <div class="text-xs font-semibold text-emerald-300 bg-emerald-950/60 border border-emerald-800/70 px-2.5 py-1 rounded-lg inline-block">
-            {{ recipe.data.macros }}
-          </div>
-  
-          <div v-if="recipe.data.ingredients_used?.length" class="flex flex-wrap gap-1.5 pt-1">
-            <span
-              v-for="(ing, i) in recipe.data.ingredients_used"
-              :key="i"
-              class="text-[11px] bg-slate-900 text-slate-300 px-2 py-0.5 rounded-md border border-slate-700/80"
-            >
+          <div v-if="recipe.data.ingredients_used?.length" class="ing-list">
+            <span v-for="(ing, i) in recipe.data.ingredients_used" :key="i" class="ing-chip">
               {{ ing }}
             </span>
           </div>
   
-          <p class="text-xs text-slate-300 leading-relaxed pt-1">
-            {{ recipe.data.steps }}
-          </p>
-        </div>
+          <p class="deal-desc">{{ recipe.data.steps }}</p>
+        </section>
       </div>
     </div>
   </template>
@@ -170,7 +103,6 @@
   import { useSector } from '../composables/useSector'
   
   const { activeSector } = useSector()
-  
   const insights = ref(null)
   const lastUpdated = ref('')
   const isGenerating = ref(false)
@@ -180,24 +112,9 @@
     const r = insights.value?.macro_recipes
     if (!r) return []
     return [
-      {
-        key: 'saturday',
-        tag: '🍔 Repas Plaisir Samedi Soir',
-        badgeColor: 'text-purple-400',
-        data: r.saturday_dinner,
-      },
-      {
-        key: 'breakfast',
-        tag: '🥣 Petit-Déjeuner Express',
-        badgeColor: 'text-blue-400',
-        data: r.breakfast,
-      },
-      {
-        key: 'snack',
-        tag: '⚡ Goûter / Collation',
-        badgeColor: 'text-emerald-400',
-        data: r.snack,
-      },
+      { key: 'saturday', tag: '🍔 Plaisir Samedi Soir', color: 'purple', data: r.saturday_dinner },
+      { key: 'breakfast', tag: '🥣 Petit-Déjeuner Express', color: 'blue', data: r.breakfast },
+      { key: 'snack', tag: '⚡ Collation Sèche', color: 'green', data: r.snack },
     ].filter(card => Boolean(card.data))
   })
   
@@ -236,7 +153,7 @@
         } catch {
           // Fallback
         }
-        alert('Erreur génération Bons Plans : ' + errMsg)
+        alert('Erreur Bons Plans : ' + errMsg)
         return
       }
   
@@ -249,7 +166,198 @@
     }
   }
   
-  onMounted(() => {
-    fetchLatestInsights()
-  })
+  onMounted(fetchLatestInsights)
   </script>
+  
+  <style scoped>
+  .bonus-page {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  
+  .page-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  
+  .page-head h2 {
+    font-size: 1.2rem;
+    font-weight: 800;
+  }
+  
+  .sub-meta {
+    display: block;
+    font-size: 0.72rem;
+    color: var(--text-light);
+    margin-top: 2px;
+  }
+  
+  .ai-btn {
+    padding: 8px 14px;
+    border-radius: 12px;
+    border: none;
+    background: var(--cta-gradient);
+    color: #ffffff;
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  
+  .ai-btn:disabled { opacity: 0.5; }
+  
+  .segmented {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    padding: 5px;
+    background-color: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+  }
+  
+  .seg-btn {
+    height: 38px;
+    border: none;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--text-light);
+    font-size: 0.82rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  
+  .seg-btn.active {
+    background-color: var(--primary);
+    color: #ffffff;
+  }
+  
+  .cards-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .ms-card {
+    background-color: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    box-shadow: var(--shadow);
+  }
+  
+  .deal-card {
+    padding: 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    border-left: 4px solid var(--primary);
+  }
+  
+  .deal-card.accent-green { border-left-color: var(--success); }
+  .deal-card.accent-blue { border-left-color: #3b82f6; }
+  .deal-card.accent-amber { border-left-color: var(--warning); }
+  
+  .deal-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  
+  .deal-tag {
+    font-size: 0.72rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+  }
+  
+  .deal-tag.green { color: var(--success); }
+  .deal-tag.blue { color: #3b82f6; }
+  .deal-tag.amber { color: var(--warning); }
+  .deal-tag.purple { color: #9333ea; }
+  
+  .price-pill,
+  .time-pill {
+    font-size: 0.74rem;
+    font-weight: 800;
+    padding: 3px 8px;
+    border-radius: 8px;
+    background-color: var(--input-bg);
+    border: 1px solid var(--border-color);
+  }
+  
+  .deal-card h3 {
+    font-size: 1rem;
+    font-weight: 800;
+    line-height: 1.3;
+  }
+  
+  .store-line {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--primary);
+  }
+  
+  .deal-desc {
+    font-size: 0.82rem;
+    line-height: 1.48;
+    color: var(--text-light);
+  }
+  
+  .roi-box {
+    font-size: 0.78rem;
+    line-height: 1.4;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background-color: rgba(245, 158, 11, 0.14);
+    color: var(--text-main);
+  }
+  
+  .macro-pill {
+    align-self: flex-start;
+    font-size: 0.76rem;
+    font-weight: 800;
+    padding: 4px 10px;
+    border-radius: 8px;
+    background-color: rgba(16, 185, 129, 0.14);
+    color: var(--success);
+  }
+  
+  .ing-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  
+  .ing-chip {
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background-color: var(--input-bg);
+    border: 1px solid var(--border-color);
+  }
+  
+  .empty-card {
+    text-align: center;
+    padding: 32px 16px;
+  }
+  
+  .empty-title {
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  
+  .empty-sub {
+    font-size: 0.8rem;
+    color: var(--text-light);
+  }
+  
+  .mt-btn {
+    margin-top: 14px;
+  }
+  </style>

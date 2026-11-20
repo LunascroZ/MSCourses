@@ -712,14 +712,14 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 48px;
+  height: 50px;
   border: none;
   border-radius: 14px;
-  background-color: var(--primary);
+  background: var(--cta-gradient);
   color: #ffffff;
   font-weight: 700;
-  font-size: 0.92rem;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+  font-size: 0.94rem;
+  box-shadow: 0 8px 20px rgba(37, 99, 235, 0.28);
   cursor: pointer;
 }
 

@@ -200,7 +200,9 @@ onMounted(async () => {
   left: 0;
   right: 0;
   z-index: 50;
-  background-color: var(--card-bg);
+  background-color: var(--nav-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border-top: 1px solid var(--border-color);
   padding-bottom: env(safe-area-inset-bottom);
 }

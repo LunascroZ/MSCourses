@@ -1,213 +1,310 @@
 <template>
-  <div class="p-4 pb-28 text-slate-100 min-h-screen bg-slate-900">
-    <div class="flex items-center justify-between mb-5">
-      <div>
-        <h1 class="text-2xl font-bold">En Rayon</h1>
-        <p v-if="brief?.sector" class="text-xs text-slate-400 mt-0.5">
-          Secteur : {{ brief.sector }}
-          <span v-if="brief.estimated_time"> • {{ brief.estimated_time }}</span>
-        </p>
+  <div class="shopping-page">
+    <!-- En-tête & stats rapides -->
+    <div class="page-head">
+      <div class="head-left">
+        <h2>En Rayon</h2>
+        <span v-if="brief?.estimated_time" class="time-pill">⏱️ {{ brief.estimated_time }}</span>
       </div>
       <button
-        @click="refreshAll"
+        type="button"
+        class="refresh-btn"
         :disabled="isLoading"
-        class="px-3 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 transition-colors disabled:opacity-50"
+        @click="refreshAll"
       >
-        {{ isLoading ? 'Actualisation...' : 'Actualiser' }}
+        {{ isLoading ? '⏳' : '↻' }} Actualiser
       </button>
     </div>
 
-    <div
-      v-if="statusMessage"
-      class="mb-4 p-3 rounded-xl bg-emerald-950/70 border border-emerald-700 text-emerald-200 text-sm"
-    >
-      {{ statusMessage }}
-    </div>
-
-    <!-- Encadré synthèse & arbitrage logistique -->
-    <div
-      v-if="brief && (brief.summary || brief.logistics_arbitrage || brief.route_order?.length)"
-      class="mb-6 bg-slate-800/80 border border-slate-700 rounded-2xl p-4 space-y-3"
-    >
-      <div class="flex flex-wrap items-center justify-between gap-2">
-        <span class="text-xs font-semibold uppercase tracking-wider text-blue-400">
-          Arbitrage & Tournée
+    <!-- Barre de stats -->
+    <section v-if="shoppingList.length > 0" class="stats-bar">
+      <div class="stat-box">
+        <span class="stat-label">Total panier</span>
+        <span class="stat-val primary">{{ totalPanier.toFixed(2) }} €</span>
+      </div>
+      <div class="stat-sep"></div>
+      <div class="stat-box">
+        <span class="stat-label">Économie</span>
+        <span class="stat-val success">
+          {{ brief?.estimated_savings ? `~${Number(brief.estimated_savings).toFixed(2)} €` : '—' }}
         </span>
-        <div class="flex items-center gap-3 text-xs">
-          <span v-if="totalPanier > 0" class="bg-slate-900 px-2.5 py-1 rounded-lg font-semibold text-slate-200">
-            Total estimé : {{ totalPanier.toFixed(2) }} €
-          </span>
-          <span v-if="brief.estimated_savings" class="bg-emerald-950/80 border border-emerald-800 px-2.5 py-1 rounded-lg font-semibold text-emerald-300">
-            Économie : ~{{ Number(brief.estimated_savings).toFixed(2) }} €
+      </div>
+      <div class="stat-sep"></div>
+      <div class="stat-box">
+        <span class="stat-label">Cochés</span>
+        <span class="stat-val">{{ checkedItems.length }} / {{ shoppingList.length }}</span>
+      </div>
+    </section>
+
+    <!-- Encadré Arbitrage & Tournée (dépliable) -->
+    <section
+      v-if="brief && (brief.summary || brief.logistics_arbitrage || brief.route_order?.length)"
+      class="ms-card brief-card"
+    >
+      <button
+        type="button"
+        class="brief-toggle"
+        @click="showBriefDetails = !showBriefDetails"
+      >
+        <div class="brief-toggle-left">
+          <span class="brief-badge">🧭 Arbitrage & Tournée</span>
+          <span v-if="brief.history_alerts?.length" class="alert-dot">
+            ⚠️ {{ brief.history_alerts.length }}
           </span>
         </div>
-      </div>
+        <span class="chevron">{{ showBriefDetails ? '▲' : '▼' }}</span>
+      </button>
 
-      <p v-if="brief.summary" class="text-sm text-slate-200 leading-relaxed">
+      <p v-if="brief.summary" class="brief-summary">
         {{ brief.summary }}
       </p>
 
-      <div v-if="brief.logistics_arbitrage" class="text-xs text-slate-300 bg-slate-900/70 p-3 rounded-xl border border-slate-700/70">
-        <span class="font-semibold text-blue-300">Pourquoi ces enseignes : </span>
-        {{ brief.logistics_arbitrage }}
-      </div>
+      <div v-if="showBriefDetails" class="brief-details">
+        <div v-if="brief.logistics_arbitrage" class="logistics-box">
+          <strong>Pourquoi ces enseignes :</strong> {{ brief.logistics_arbitrage }}
+        </div>
 
-      <div v-if="brief.route_order?.length" class="flex flex-wrap items-center gap-2 pt-1">
-        <span class="text-xs text-slate-400 font-medium">Ordre chaîne du froid :</span>
-        <span
-          v-for="(step, idx) in brief.route_order"
-          :key="idx"
-          class="text-xs bg-slate-900 border border-slate-700 px-2.5 py-1 rounded-lg text-slate-200"
-        >
-          {{ step }}
-        </span>
-      </div>
+        <div v-if="brief.route_order?.length" class="route-box">
+          <span class="route-label">Ordre chaîne du froid :</span>
+          <div class="route-steps">
+            <span v-for="(step, idx) in brief.route_order" :key="idx" class="route-pill">
+              {{ step }}
+            </span>
+          </div>
+        </div>
 
-      <div
-        v-if="brief.history_alerts?.length"
-        class="text-xs text-amber-200 bg-amber-950/50 border border-amber-800/80 p-2.5 rounded-xl space-y-1"
+        <div v-if="brief.history_alerts?.length" class="alerts-box">
+          <p v-for="(alert, i) in brief.history_alerts" :key="i">
+            ⚠️ {{ alert }}
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Filtres rapides par magasin -->
+    <div v-if="storeNames.length > 1" class="store-filters">
+      <button
+        type="button"
+        class="filter-pill"
+        :class="{ active: selectedStoreFilter === 'ALL' }"
+        @click="selectedStoreFilter = 'ALL'"
       >
-        <p v-for="(alert, i) in brief.history_alerts" :key="i">
-          ⚠️ {{ alert }}
-        </p>
-      </div>
+        Tous ({{ shoppingList.length }})
+      </button>
+      <button
+        v-for="store in storeNames"
+        :key="store"
+        type="button"
+        class="filter-pill"
+        :class="{ active: selectedStoreFilter === store }"
+        @click="selectedStoreFilter = store"
+      >
+        <span class="store-dot" :style="{ backgroundColor: getStoreAccent(store) }"></span>
+        {{ store }} ({{ groupedItems[store].length }})
+      </button>
     </div>
 
     <!-- État vide -->
-    <div
-      v-if="!isLoading && Object.keys(groupedItems).length === 0"
-      class="text-center py-12 text-slate-400 bg-slate-800/50 rounded-2xl border border-slate-800"
-    >
-      <p class="font-medium text-slate-200 mb-1">Aucun article en rayon pour le moment</p>
-      <p class="text-sm">Lance l'optimisation Gemini depuis ton brouillon pour générer le tableau.</p>
+    <div v-if="!isLoading && shoppingList.length === 0" class="ms-card empty-card">
+      <p class="empty-title">Aucun article en rayon</p>
+      <p class="empty-sub">Lance l'optimisation Gemini depuis l'onglet Brouillon.</p>
     </div>
 
     <!-- Cartes par enseigne -->
-    <div
-      v-for="(items, store) in groupedItems"
+    <section
+      v-for="(items, store) in visibleGroupedItems"
       :key="store"
-      class="mb-8 rounded-2xl border border-slate-700/80 bg-slate-800/40 overflow-hidden"
+      class="ms-card store-card"
     >
       <div
-        class="px-4 py-3 flex items-center justify-between border-b border-slate-700"
-        :style="{ borderLeftWidth: '5px', borderLeftColor: getStoreAccent(store) }"
+        class="store-header"
+        :style="{ borderLeftColor: getStoreAccent(store) }"
       >
-        <div>
-          <h2 class="text-lg font-bold text-white">{{ store }}</h2>
-          <p v-if="getStoreRole(store)" class="text-xs text-slate-400">{{ getStoreRole(store) }}</p>
+        <div class="store-title-block">
+          <h3>{{ store }}</h3>
+          <span v-if="getStoreRole(store)" class="store-role">{{ getStoreRole(store) }}</span>
         </div>
-        <span class="text-sm font-semibold text-slate-200 bg-slate-900/80 px-3 py-1 rounded-lg">
-          {{ getStoreTotal(items).toFixed(2) }} €
-        </span>
+        <span class="store-subtotal">{{ getStoreTotal(items).toFixed(2) }} €</span>
       </div>
 
-      <div class="divide-y divide-slate-700/60">
-        <label
+      <div class="store-items">
+        <div
           v-for="item in items"
           :key="item.id"
-          class="flex items-start gap-3.5 p-4 bg-slate-800/60 hover:bg-slate-800 transition-colors cursor-pointer"
-          :class="{ 'opacity-50': item.is_checked }"
+          class="shop-row"
+          :class="{ checked: Boolean(item.is_checked) }"
+          @click="toggleCheck(item)"
         >
-          <input
-            type="checkbox"
-            :checked="Boolean(item.is_checked)"
-            @change="toggleCheck(item)"
-            class="w-6 h-6 mt-1 rounded-lg accent-blue-500 shrink-0"
-          />
+          <div class="custom-check" :class="{ active: Boolean(item.is_checked) }">
+            <span v-if="item.is_checked">✓</span>
+          </div>
 
-          <div class="flex-1 min-w-0 space-y-1.5">
-            <div class="flex flex-wrap items-start justify-between gap-2">
-              <p class="font-bold text-base leading-snug" :class="{ 'line-through': item.is_checked }">
-                {{ item.name }}
-              </p>
-              <div class="text-right shrink-0">
-                <span class="font-bold text-blue-300 text-sm">
-                  {{ getItemPrice(item) !== null ? `${getItemPrice(item).toFixed(2)} €` : '—' }}
-                </span>
-                <p class="text-xs text-slate-400">
-                  {{ item.quantity ?? 1 }} {{ item.unit || 'unité(s)' }}
-                </p>
+          <div class="shop-body">
+            <div class="shop-top-line">
+              <span class="shop-name">{{ item.name }}</span>
+              <div class="shop-right-actions">
+                <div class="shop-price-col">
+                  <span class="shop-price" :class="{ real: item.actual_price !== null }">
+                    {{ getItemPrice(item) !== null ? `${getItemPrice(item).toFixed(2)} €` : '—' }}
+                  </span>
+                  <span class="shop-qty">
+                    {{ item.quantity ?? 1 }} {{ item.unit || 'unité(s)' }}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  class="edit-item-btn"
+                  title="Modifier prix, quantité ou magasin"
+                  @click.stop="openEditModal(item)"
+                >
+                  ✏️
+                </button>
               </div>
             </div>
 
-            <!-- Fiabilité du prix -->
-            <div v-if="item.price_reliability" class="flex items-center gap-2">
+            <div class="badges-row">
+              <span v-if="item.actual_price !== null" class="reliability-badge real-paid">
+                Prix réel saisi
+              </span>
               <span
-                class="text-[11px] px-2 py-0.5 rounded-md font-medium"
+                v-else-if="item.price_reliability"
+                class="reliability-badge"
                 :class="
                   item.price_reliability.toLowerCase().includes('vérifié')
-                    ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/70'
-                    : 'bg-amber-950 text-amber-300 border border-amber-800/70'
+                    ? 'verified'
+                    : 'probable'
                 "
               >
                 {{ item.price_reliability }}
               </span>
             </div>
 
-            <!-- Justification de sélection -->
-            <p v-if="item.reason" class="text-xs text-slate-300 leading-relaxed">
-              <span class="text-slate-400 font-medium">Pourquoi ce choix : </span>{{ item.reason }}
+            <p v-if="item.reason" class="shop-reason">
+              {{ item.reason }}
             </p>
 
-            <!-- Astuce substitution directe -->
-            <p
-              v-if="item.alternative_tip"
-              class="text-xs text-indigo-200 bg-indigo-950/50 border border-indigo-800/60 px-2.5 py-1.5 rounded-lg"
-            >
-              💡 <span class="font-medium">Alternative :</span> {{ item.alternative_tip }}
-            </p>
+            <div v-if="item.alternative_tip" class="shop-alt-tip">
+              💡 <strong>Alternative :</strong> {{ item.alternative_tip }}
+            </div>
           </div>
-        </label>
+        </div>
       </div>
-    </div>
+    </section>
 
-    <!-- Tableau des alternatives & substitutions -->
-    <div
+    <!-- Alternatives & Substitutions -->
+    <section
       v-if="brief?.alternatives_table?.length"
-      class="mt-8 bg-slate-800/70 border border-slate-700 rounded-2xl overflow-hidden"
+      class="ms-card alt-section"
     >
-      <div class="px-4 py-3 border-b border-slate-700 flex items-center justify-between">
-        <h2 class="text-base font-bold text-indigo-300">
-          Tableau des Alternatives & Substitutions
-        </h2>
-        <span class="text-xs text-slate-400">MDD • XXL • Macros • En ligne</span>
+      <div class="alt-header">
+        <h3>💡 Alternatives & Substitutions</h3>
+        <span class="alt-sub">MDD • XXL • Macros</span>
       </div>
 
-      <div class="overflow-x-auto">
-        <table class="w-full text-left border-collapse text-xs">
-          <thead>
-            <tr class="bg-slate-900/80 text-slate-400 border-b border-slate-700">
-              <th class="py-2.5 px-3 font-semibold">Article</th>
-              <th class="py-2.5 px-3 font-semibold">Alternative conseillée</th>
-              <th class="py-2.5 px-3 font-semibold">Où / Prix</th>
-              <th class="py-2.5 px-3 font-semibold">Gain & Intérêt</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-700/60">
-            <tr v-for="(alt, idx) in brief.alternatives_table" :key="idx" class="hover:bg-slate-800/80">
-              <td class="py-2.5 px-3 font-medium text-slate-200">{{ alt.target_item }}</td>
-              <td class="py-2.5 px-3 text-indigo-200 font-medium">{{ alt.alternative_product }}</td>
-              <td class="py-2.5 px-3 text-slate-300">
-                <div>{{ alt.where_to_find }}</div>
-                <div v-if="alt.estimated_price" class="text-emerald-300 font-semibold">
-                  {{ alt.estimated_price }}
-                </div>
-              </td>
-              <td class="py-2.5 px-3 text-slate-300">{{ alt.benefit }}</td>
-            </tr>
-          </tbody>
-        </table>
+      <div class="alt-list">
+        <div v-for="(alt, idx) in brief.alternatives_table" :key="idx" class="alt-item">
+          <div class="alt-top">
+            <span class="alt-target">{{ alt.target_item }}</span>
+            <span v-if="alt.estimated_price" class="alt-price">{{ alt.estimated_price }}</span>
+          </div>
+          <div class="alt-product">→ {{ alt.alternative_product }}</div>
+          <div class="alt-meta">
+            <div class="alt-source-line">
+              <span class="alt-where">📍 {{ alt.where_to_find }}</span>
+              <span
+                class="source-tag"
+                :class="getSourceClass(alt.price_source)"
+              >
+                {{ alt.price_source || 'Estimation IA' }}
+              </span>
+            </div>
+            <span class="alt-benefit">{{ alt.benefit }}</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Bouton flottant de validation des achats -->
+    <div v-if="hasCheckedItems" class="floating-validate">
+      <button
+        type="button"
+        class="validate-btn"
+        :disabled="isValidating"
+        @click="validatePurchases"
+      >
+        <span v-if="isValidating">⏳ Validation en cours...</span>
+        <span v-else>✓ Valider {{ checkedItems.length }} article(s) → Stock & Historique</span>
+      </button>
+    </div>
+
+    <!-- Modale d'édition rapide en rayon -->
+    <div v-if="editingItem" class="modal-overlay" @click.self="closeEditModal">
+      <div class="modal-sheet">
+        <div class="modal-head">
+          <h3>Ajuster l'achat</h3>
+          <button type="button" class="modal-close" @click="closeEditModal">✕</button>
+        </div>
+
+        <p class="modal-item-name">{{ editingItem.name }}</p>
+
+        <div class="modal-form">
+          <div class="field-group">
+            <label>Prix réel payé (€)</label>
+            <input
+              v-model.number="editForm.actual_price"
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="Ex: 4.50"
+              class="modal-input"
+            />
+          </div>
+
+          <div class="field-row-2">
+            <div class="field-group">
+              <label>Quantité réelle</label>
+              <input
+                v-model.number="editForm.quantity"
+                type="number"
+                step="any"
+                min="0.01"
+                class="modal-input"
+              />
+            </div>
+            <div class="field-group">
+              <label>Unité</label>
+              <select v-model="editForm.unit" class="modal-input">
+                <option v-for="u in unitOptions" :key="u" :value="u">{{ u }}</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field-group">
+            <label>Magasin réel</label>
+            <select v-model="editForm.store" class="modal-input">
+              <option v-for="st in allowedStores" :key="st" :value="st">{{ st }}</option>
+            </select>
+          </div>
+
+          <div class="modal-actions">
+            <button type="button" class="btn-cancel" @click="closeEditModal">Annuler</button>
+            <button
+              type="button"
+              class="btn-save"
+              :disabled="isSavingEdit"
+              @click="saveItemEdit"
+            >
+              {{ isSavingEdit ? 'Enregistrement...' : 'Enregistrer' }}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
-    <button
-      v-if="hasCheckedItems"
-      @click="validatePurchases"
-      :disabled="isValidating"
-      class="fixed bottom-20 left-4 right-4 bg-green-600 hover:bg-green-500 disabled:opacity-60 py-4 rounded-xl font-bold shadow-lg z-10 transition-colors"
-    >
-      {{ isValidating ? 'Validation en cours...' : `Valider les achats (${checkedItems.length}) • Historique & Stock` }}
-    </button>
+    <!-- Toast -->
+    <div v-if="statusMessage" class="toast-banner" :class="statusType">
+      {{ statusMessage }}
+    </div>
   </div>
 </template>
 
@@ -219,17 +316,55 @@ const shoppingList = ref([])
 const brief = ref(null)
 const isLoading = ref(false)
 const isValidating = ref(false)
+const showBriefDetails = ref(false)
+const selectedStoreFilter = ref('ALL')
 const statusMessage = ref('')
+const statusType = ref('success')
+
+// État modale d'édition rapide
+const editingItem = ref(null)
+const isSavingEdit = ref(false)
+const editForm = ref({
+  actual_price: null,
+  quantity: 1,
+  unit: 'unité(s)',
+  store: 'Leclerc',
+})
+
+const unitOptions = ['unité(s)', 'g', 'kg', 'L', 'ml', 'lot(s)', 'boîte(s)']
+const allowedStores = [
+  'Leclerc',
+  'Carrefour',
+  'Action',
+  'Lidl',
+  'Aldi',
+  'Grand Frais',
+  'Auchan',
+  'Asia',
+  'En ligne',
+  'Autre',
+]
+
 let realtimeChannel
 
 const STORE_COLORS = {
   leclerc: '#0055a5',
-  action: '#38bdf8',
-  lidl: '#facc15',
-  aldi: '#60a5fa',
+  action: '#0284c7',
+  lidl: '#eab308',
+  aldi: '#3b82f6',
   carrefour: '#ef4444',
-  'grand frais': '#22c55e',
-  asia: '#f87171',
+  'grand frais': '#16a34a',
+  asia: '#dc2626',
+  auchan: '#e11d48',
+  'en ligne': '#7c3aed',
+}
+
+const showToast = (msg, type = 'success') => {
+  statusMessage.value = msg
+  statusType.value = type
+  setTimeout(() => {
+    statusMessage.value = ''
+  }, 3200)
 }
 
 const getStoreAccent = (storeName) => {
@@ -240,21 +375,36 @@ const getStoreAccent = (storeName) => {
   return '#64748b'
 }
 
+const getSourceClass = (source) => {
+  const s = (source || '').toLowerCase()
+  if (s.includes('drive')) return 'src-verified'
+  if (s.includes('catalogue') || s.includes('promo')) return 'src-promo'
+  return 'src-estimate'
+}
+
 const getStoreRole = (storeName) => {
   if (!brief.value?.stores) return ''
   const match = brief.value.stores.find(
-    s => (s.store_name || '').toLowerCase() === (storeName || '').toLowerCase()
+    s => (s.store_name || '').toLowerCase().includes((storeName || '').toLowerCase())
   )
   return match?.store_role || ''
 }
 
 const groupedItems = computed(() => {
   return shoppingList.value.reduce((acc, item) => {
-    const store = item.store || 'À classer'
+    const store = item.store || 'Autre'
     if (!acc[store]) acc[store] = []
     acc[store].push(item)
     return acc
   }, {})
+})
+
+const storeNames = computed(() => Object.keys(groupedItems.value))
+
+const visibleGroupedItems = computed(() => {
+  if (selectedStoreFilter.value === 'ALL') return groupedItems.value
+  const items = groupedItems.value[selectedStoreFilter.value]
+  return items ? { [selectedStoreFilter.value]: items } : groupedItems.value
 })
 
 const checkedItems = computed(() => shoppingList.value.filter(i => Boolean(i.is_checked)))
@@ -272,6 +422,53 @@ const getStoreTotal = (items) => {
 }
 
 const totalPanier = computed(() => getStoreTotal(shoppingList.value))
+
+const openEditModal = (item) => {
+  editingItem.value = item
+  editForm.value = {
+    actual_price: item.actual_price ?? item.estimated_price ?? 0,
+    quantity: Number(item.quantity ?? 1) || 1,
+    unit: item.unit || 'unité(s)',
+    store: allowedStores.includes(item.store) ? item.store : 'Autre',
+  }
+}
+
+const closeEditModal = () => {
+  editingItem.value = null
+}
+
+const saveItemEdit = async () => {
+  if (!editingItem.value || isSavingEdit.value) return
+  isSavingEdit.value = true
+
+  try {
+    const parsedPrice = Number(editForm.value.actual_price)
+    const parsedQty = Number(editForm.value.quantity)
+
+    const payload = {
+      actual_price: Number.isFinite(parsedPrice) && parsedPrice >= 0 ? parsedPrice : null,
+      quantity: Number.isFinite(parsedQty) && parsedQty > 0 ? parsedQty : 1,
+      unit: editForm.value.unit || 'unité(s)',
+      store: editForm.value.store || 'Autre',
+    }
+
+    const { error } = await supabase
+      .from('shopping_list')
+      .update(payload)
+      .eq('id', editingItem.value.id)
+
+    if (error) throw error
+
+    Object.assign(editingItem.value, payload)
+    showToast('Article mis à jour')
+    closeEditModal()
+  } catch (err) {
+    console.error('Erreur édition article:', err)
+    showToast(`Erreur : ${err?.message || err}`, 'error')
+  } finally {
+    isSavingEdit.value = false
+  }
+}
 
 const fetchList = async () => {
   const { data, error } = await supabase
@@ -318,7 +515,6 @@ const toggleCheck = async (item) => {
 const validatePurchases = async () => {
   if (!hasCheckedItems.value || isValidating.value) return
   isValidating.value = true
-  statusMessage.value = ''
 
   try {
     const purchased = [...checkedItems.value]
@@ -340,7 +536,6 @@ const validatePurchases = async () => {
       return key ? invByName.get(key) : undefined
     }
 
-    // 1. Archivage dans purchase_history avec quantity + unit + purchase_date
     const historyPayload = purchased.map(item => {
       const invRow = resolveInventoryRow(item)
       const qty = Number(item.quantity ?? 1) || 1
@@ -348,7 +543,7 @@ const validatePurchases = async () => {
       return {
         inventory_id: item.inventory_id ?? invRow?.id ?? null,
         name: item.name,
-        store: item.store || 'Drive',
+        store: item.store || 'Autre',
         price,
         quantity: qty,
         unit: item.unit || invRow?.unit || 'unité(s)',
@@ -363,7 +558,6 @@ const validatePurchases = async () => {
 
     if (historyError) throw historyError
 
-    // 2. Mise à jour de current_quantity et unit dans inventory
     for (const item of purchased) {
       const invRow = resolveInventoryRow(item)
       const qtyToAdd = Number(item.quantity ?? 1) || 1
@@ -402,7 +596,6 @@ const validatePurchases = async () => {
       }
     }
 
-    // 3. Suppression des articles validés de shopping_list
     const idsToDelete = purchased.map(i => i.id).filter(Boolean)
     if (idsToDelete.length > 0) {
       const { error: deleteError } = await supabase
@@ -414,10 +607,10 @@ const validatePurchases = async () => {
     }
 
     shoppingList.value = shoppingList.value.filter(i => !Boolean(i.is_checked))
-    statusMessage.value = `${purchased.length} article(s) validé(s), archivé(s) dans l'historique et ajouté(s) au stock.`
+    showToast(`${purchased.length} article(s) validé(s) → Historique & Stock`)
   } catch (err) {
     console.error('Erreur validation achats:', err)
-    statusMessage.value = `Erreur lors de la validation : ${err?.message || err}`
+    showToast(`Erreur : ${err?.message || err}`, 'error')
   } finally {
     isValidating.value = false
   }
@@ -446,3 +639,727 @@ onUnmounted(() => {
   if (realtimeChannel) supabase.removeChannel(realtimeChannel)
 })
 </script>
+
+<style scoped>
+.shopping-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.head-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.head-left h2 {
+  font-size: 1.2rem;
+  font-weight: 800;
+}
+
+.time-pill {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background-color: var(--card-bg);
+  border: 1px solid var(--border-color);
+  color: var(--text-light);
+}
+
+.refresh-btn {
+  padding: 6px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background-color: var(--card-bg);
+  color: var(--text-main);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.stats-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  background-color: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 12px 10px;
+  box-shadow: var(--shadow);
+}
+
+.stat-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.stat-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--text-light);
+}
+
+.stat-val {
+  font-size: 0.98rem;
+  font-weight: 800;
+  color: var(--text-main);
+}
+
+.stat-val.primary {
+  color: var(--primary);
+}
+
+.stat-val.success {
+  color: var(--success);
+}
+
+.stat-sep {
+  width: 1px;
+  height: 28px;
+  background-color: var(--border-color);
+}
+
+.ms-card {
+  background-color: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.brief-card {
+  padding: 14px;
+}
+
+.brief-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.brief-toggle-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.brief-badge {
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: var(--primary);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.alert-dot {
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background-color: rgba(245, 158, 11, 0.15);
+  color: var(--warning);
+}
+
+.chevron {
+  font-size: 0.72rem;
+  color: var(--text-light);
+}
+
+.brief-summary {
+  margin-top: 8px;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  color: var(--text-main);
+}
+
+.brief-details {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.logistics-box {
+  font-size: 0.78rem;
+  line-height: 1.45;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background-color: var(--input-bg);
+  color: var(--text-main);
+}
+
+.route-label {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-light);
+  margin-bottom: 6px;
+}
+
+.route-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.route-pill {
+  font-size: 0.74rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background-color: var(--primary-soft);
+  color: var(--primary);
+}
+
+.alerts-box {
+  font-size: 0.76rem;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background-color: rgba(245, 158, 11, 0.14);
+  color: var(--warning);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.store-filters {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+
+.store-filters::-webkit-scrollbar {
+  display: none;
+}
+
+.filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background-color: var(--card-bg);
+  color: var(--text-light);
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.filter-pill.active {
+  background-color: var(--primary);
+  border-color: var(--primary);
+  color: #ffffff;
+}
+
+.store-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.store-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-color);
+  border-left: 5px solid var(--primary);
+  background-color: var(--surface-elevated);
+}
+
+.store-title-block h3 {
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--text-main);
+}
+
+.store-role {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--text-light);
+  margin-top: 2px;
+}
+
+.store-subtotal {
+  font-size: 0.88rem;
+  font-weight: 800;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background-color: var(--card-bg);
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
+}
+
+.store-items {
+  display: flex;
+  flex-direction: column;
+}
+
+.shop-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 13px 14px;
+  border-bottom: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.shop-row:last-child {
+  border-bottom: none;
+}
+
+.shop-row.checked {
+  opacity: 0.5;
+}
+
+.custom-check {
+  width: 24px;
+  height: 24px;
+  margin-top: 2px;
+  border-radius: 7px;
+  border: 2px solid var(--border-color);
+  background-color: var(--input-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: #ffffff;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.custom-check.active {
+  background-color: var(--success);
+  border-color: var(--success);
+}
+
+.shop-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.shop-top-line {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.shop-name {
+  font-size: 0.92rem;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--text-main);
+}
+
+.shop-row.checked .shop-name {
+  text-decoration: line-through;
+}
+
+.shop-right-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.shop-price-col {
+  text-align: right;
+}
+
+.shop-price {
+  display: block;
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: var(--primary);
+}
+
+.shop-price.real {
+  color: var(--success);
+}
+
+.shop-qty {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--text-light);
+}
+
+.edit-item-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background-color: var(--input-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.badges-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.reliability-badge {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 6px;
+}
+
+.reliability-badge.verified,
+.reliability-badge.real-paid {
+  background-color: rgba(16, 185, 129, 0.14);
+  color: var(--success);
+}
+
+.reliability-badge.probable {
+  background-color: rgba(245, 158, 11, 0.14);
+  color: var(--warning);
+}
+
+.shop-reason {
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--text-light);
+}
+
+.shop-alt-tip {
+  font-size: 0.76rem;
+  line-height: 1.35;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background-color: var(--primary-soft);
+  color: var(--text-main);
+}
+
+/* Section Alternatives */
+.alt-section {
+  padding: 14px;
+}
+
+.alt-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.alt-header h3 {
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+
+.alt-sub {
+  font-size: 0.7rem;
+  color: var(--text-light);
+  font-weight: 600;
+}
+
+.alt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.alt-item {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background-color: var(--input-bg);
+  border: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.alt-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.alt-target {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-light);
+}
+
+.alt-price {
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: var(--success);
+}
+
+.alt-product {
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.alt-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.74rem;
+  color: var(--text-light);
+}
+
+.alt-source-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.alt-where {
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.source-tag {
+  font-size: 0.66rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 6px;
+}
+
+.source-tag.src-verified {
+  background-color: rgba(16, 185, 129, 0.14);
+  color: var(--success);
+}
+
+.source-tag.src-promo {
+  background-color: var(--primary-soft);
+  color: var(--primary);
+}
+
+.source-tag.src-estimate {
+  background-color: rgba(245, 158, 11, 0.15);
+  color: var(--warning);
+}
+
+/* Modale édition rapide */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 80;
+  padding: 12px;
+}
+
+.modal-sheet {
+  width: 100%;
+  max-width: 500px;
+  background-color: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  padding: 18px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  margin-bottom: env(safe-area-inset-bottom);
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.modal-head h3 {
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.modal-close {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background-color: var(--input-bg);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.modal-item-name {
+  font-size: 0.84rem;
+  color: var(--text-light);
+  margin-bottom: 14px;
+}
+
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.field-group label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-light);
+}
+
+.field-row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.modal-input {
+  height: 42px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background-color: var(--input-bg);
+  color: var(--text-main);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.modal-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.modal-actions {
+  display: grid;
+  grid-template-columns: 1fr 1.5fr;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.btn-cancel {
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background-color: var(--input-bg);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btn-save {
+  height: 44px;
+  border-radius: 12px;
+  border: none;
+  background-color: var(--primary);
+  color: #ffffff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.empty-card {
+  text-align: center;
+  padding: 32px 16px;
+}
+
+.empty-title {
+  font-weight: 700;
+  font-size: 0.95rem;
+  margin-bottom: 4px;
+}
+
+.empty-sub {
+  font-size: 0.8rem;
+  color: var(--text-light);
+}
+
+.floating-validate {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(64px + env(safe-area-inset-bottom));
+  padding: 10px 16px;
+  background: linear-gradient(to top, var(--bg-color) 75%, transparent);
+  z-index: 35;
+}
+
+.validate-btn {
+  max-width: 508px;
+  width: 100%;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 50px;
+  border: none;
+  border-radius: 14px;
+  background-color: var(--success);
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 0.92rem;
+  box-shadow: 0 8px 20px rgba(16, 185, 129, 0.3);
+  cursor: pointer;
+}
+
+.validate-btn:disabled {
+  opacity: 0.55;
+}
+
+.toast-banner {
+  position: fixed;
+  top: 68px;
+  left: 16px;
+  right: 16px;
+  max-width: 508px;
+  margin: 0 auto;
+  padding: 10px 14px;
+  border-radius: 12px;
+  color: #ffffff;
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-align: center;
+  z-index: 90;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+}
+
+.toast-banner.success {
+  background-color: var(--success);
+}
+
+.toast-banner.error {
+  background-color: var(--danger);
+}
+</style>

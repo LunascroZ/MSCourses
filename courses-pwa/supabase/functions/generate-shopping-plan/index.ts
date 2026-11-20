@@ -284,8 +284,18 @@ CONSIGNES D'ARBITRAGE, DE SUBSTITUTION ET DE LOGISTIQUE :
   - Débouchés en ligne : Si un article est introuvable ou hors de prix en grande surface (sauces 0 kcal, compléments sportifs, gros sacs d'avoine), indique l'alternative en ligne.
 3. Action : Référence absolue pour l'hygiène, la droguerie et l'entretien (sacs poubelle, lessive, etc.).
 4. Transparence des prix : Indique dans "price_reliability" soit "Prix Drive vérifié" (Leclerc/Carrefour issus des relevés Drive), soit "Probable (arrivages / catalogue)" (Action, Lidl, Aldi, Grand Frais).
+- Pour chaque entrée de "alternatives_table", renseigne obligatoirement "price_source" avec l'une de ces 3 valeurs exactes :
+  - "Drive vérifié" (uniquement si le prix exact figure dans PRIX DRIVE DU JOUR),
+  - "Catalogue promo" (uniquement si le prix figure dans PROMOS CATALOGUES ANTI-CRISE),
+  - "Estimation IA" (pour Grand Frais, Action, Lidl, Aldi, Asia ou en ligne sans relevé exact). Ne fais JAMAIS passer une estimation pour un prix vérifié.
 5. Mémoire & Historique (3 semaines) : Signale dans "history_alerts" les produits non périssables déjà achetés récemment dans l'historique fourni.
 6. Ordre de tournée : Respecte la chaîne du froid (sec / Action d'abord, frais / surgelés en dernier).
+7. Quantité & Unité réelles (CRITIQUE) :
+  - Pour tout produit alimentaire ou liquide ayant un poids/volume indiqué (ex: barquette 350g, filet 1kg, pack 6x1L), renseigne OBLIGATOIREMENT la quantité et l'unité réelles totales achetées (ex: "quantity": 350, "unit": "g" ou "quantity": 700, "unit": "g" si tu conseilles 2 barquettes ; "quantity": 6, "unit": "L"). Ne mets JAMAIS "1 unité(s)" si le produit a un poids ou un volume.
+  - Utilise "unité(s)" uniquement pour les articles comptables sans poids/volume pertinent (ex: boîte de mouchoirs, œufs -> 12 unité(s), sacs poubelle -> 20 unité(s)).
+  - Si tu conseilles plusieurs packs/barquettes pour couvrir le besoin du brouillon, indique-le dans "matched_product" (ex: "2x Viande hachée 5% MG Férial 350g") et calcule "total_price" en conséquence.
+8. Source des prix dans "alternatives_table" :
+  - Renseigne obligatoirement "price_source" avec l'une de ces 3 valeurs exactes : "Drive vérifié" (uniquement si présent dans PRIX DRIVE DU JOUR), "Catalogue promo" (uniquement si présent dans PROMOS CATALOGUES ANTI-CRISE), ou "Estimation IA" (Grand Frais, Action, Lidl, Aldi, Asia ou en ligne sans relevé exact).
 
 Ne génère PAS d'idées de recettes ni de veille électroménager/tech : concentre-toi uniquement sur le panier, l'arbitrage magasin par magasin, la tournée et le tableau des alternatives.
 Réponds UNIQUEMENT en JSON valide respectant strictement le schéma demandé.`;
@@ -319,11 +329,11 @@ Format JSON strict attendu :
       "items": [
         {
           "draft_name": "Nom saisi dans draft_list",
-          "matched_product": "Nom exact & format conseillé (ex: Bananes Cavendish 1 kg)",
-          "quantity": 1,
-          "unit": "kg",
-          "unit_price_paid": 0.00,
-          "total_price": 0.00,
+          "matched_product": "Nom exact & format conseillé (ex: Viande hachée 5% MG Férial 350g)",
+          "quantity": 350,
+          "unit": "g",
+          "unit_price_paid": 5.71,
+          "total_price": 5.71,
           "price_reliability": "Prix Drive vérifié",
           "reason": "Justification précise : comparaison €/kg, -5% Carrefour, proximité, promo catalogue",
           "alternative_tip": "Substitution courte MDD / gros volume / macro (ou null)"
@@ -337,6 +347,7 @@ Format JSON strict attendu :
       "alternative_product": "Produit de remplacement / format XXL / MDD / en ligne",
       "where_to_find": "Enseigne ou site (ex: Lidl Thionville, Asia Thionville, Prozis)",
       "estimated_price": "ex: ~2.49 € / kg",
+      "price_source": "Drive vérifié | Catalogue promo | Estimation IA",
       "benefit": "Gain financier, macro ou format (ex: -35% vs marque nationale, sac 5 kg)"
     }
   ]
