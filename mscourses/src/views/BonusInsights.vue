@@ -6,9 +6,9 @@
         type="button"
         class="ai-btn"
         :disabled="isGenerating"
-        @click="generateMoreRecipes"
+        @click="showGenModal = true"
       >
-        {{ isGenerating ? '⏳ Génération...' : '✨ +5 Idées IA' }}
+        {{ isGenerating ? '⏳ Génération...' : '✨ Générer IA' }}
       </button>
     </div>
 
@@ -32,9 +32,33 @@
       </button>
     </div>
 
-    <!-- ONGLET 1 : DÉCOUVRIR (TINDER) -->
+    <!-- ONGLET 1 : DÉCOUVRIR (TINDER + SWIPE TACTILE) -->
     <div v-if="activeTab === 'discover'" class="discover-wrap">
-      <div v-if="currentCard" class="ms-card tinder-card">
+      <div
+        v-if="currentCard"
+        class="ms-card tinder-card"
+        :class="{ 'is-dragging': isDragging }"
+        :style="cardTransformStyle"
+        @touchstart.passive="onTouchStart"
+        @touchmove="onTouchMove"
+        @touchend="onTouchEnd"
+      >
+        <!-- Tampons visuels pendant le swipe -->
+        <div
+          v-if="swipeX > 30"
+          class="swipe-stamp like-stamp"
+          :style="{ opacity: Math.min(1, (swipeX - 30) / 70) }"
+        >
+          ♥ J'AIME
+        </div>
+        <div
+          v-if="swipeX < -30"
+          class="swipe-stamp nope-stamp"
+          :style="{ opacity: Math.min(1, (-swipeX - 30) / 70) }"
+        >
+          ✕ PASSER
+        </div>
+
         <div class="card-top">
           <span class="cat-badge">{{ currentCard.category || 'Plat' }}</span>
           <span class="time-pill">⏱️ {{ currentCard.prep_time }}</span>
@@ -73,32 +97,34 @@
           <button
             type="button"
             class="swipe-btn dislike"
-            @click="voteRecipe(currentCard, 'disliked')"
+            @click="triggerButtonVote(currentCard, 'disliked')"
           >
             ✕ Passer
           </button>
           <button
             type="button"
             class="swipe-btn like"
-            @click="voteRecipe(currentCard, 'liked')"
+            @click="triggerButtonVote(currentCard, 'liked')"
           >
             ♥ J'aime
           </button>
         </div>
+
+        <p class="swipe-hint">← Glisse à gauche pour passer • à droite pour aimer →</p>
       </div>
 
       <div v-else class="ms-card empty-card">
         <p class="empty-title">Plus aucune recette à trier</p>
         <p class="empty-sub">
-          Gemini s'appuiera sur tes {{ likedRecipes.length }} recettes likées et ton stock actuel pour t'en proposer de nouvelles.
+          Choisis ton envie du moment (Salé/Sucré, Gourmande, Fraîche, Rapide...) et génère un nouveau lot d'idées.
         </p>
         <button
           type="button"
           class="ai-btn mt-btn"
           :disabled="isGenerating"
-          @click="generateMoreRecipes"
+          @click="showGenModal = true"
         >
-          {{ isGenerating ? '⏳ Génération...' : '✨ Générer 5 nouvelles recettes' }}
+          {{ isGenerating ? '⏳ Génération...' : '✨ Configurer & Générer' }}
         </button>
       </div>
     </div>
@@ -107,7 +133,7 @@
     <div v-if="activeTab === 'liked'" class="liked-list">
       <div v-if="likedRecipes.length === 0" class="ms-card empty-card">
         <p class="empty-title">Aucune recette enregistrée</p>
-        <p class="empty-sub">Like des idées dans « Découvrir » pour les retrouver ici.</p>
+        <p class="empty-sub">Swipe à droite dans « Découvrir » pour sauvegarder tes coups de cœur.</p>
       </div>
 
       <button
@@ -131,6 +157,73 @@
       </button>
     </div>
 
+    <!-- MODALE CONFIGURATION GÉNÉRATION IA -->
+    <div v-if="showGenModal" class="modal-overlay" @click.self="showGenModal = false">
+      <div class="modal-sheet">
+        <div class="modal-head">
+          <h3>✨ Tes envies du moment</h3>
+          <button type="button" class="modal-close" @click="showGenModal = false">✕</button>
+        </div>
+
+        <div class="gen-group">
+          <label>Type</label>
+          <div class="chip-grid-3">
+            <button
+              v-for="t in tasteOptions"
+              :key="t.value"
+              type="button"
+              class="choice-chip"
+              :class="{ active: genConfig.taste === t.value }"
+              @click="genConfig.taste = t.value"
+            >
+              {{ t.label }}
+            </button>
+          </div>
+        </div>
+
+        <div class="gen-group">
+          <label>Ambiance / Envie</label>
+          <div class="chip-grid-2">
+            <button
+              v-for="v in vibeOptions"
+              :key="v.value"
+              type="button"
+              class="choice-chip"
+              :class="{ active: genConfig.vibe === v.value }"
+              @click="genConfig.vibe = v.value"
+            >
+              {{ v.label }}
+            </button>
+          </div>
+        </div>
+
+        <div class="gen-group">
+          <label>Nombre de recettes (1 seul appel IA)</label>
+          <div class="chip-grid-3">
+            <button
+              v-for="n in [10, 15, 20]"
+              :key="n"
+              type="button"
+              class="choice-chip"
+              :class="{ active: genConfig.count === n }"
+              @click="genConfig.count = n"
+            >
+              {{ n }} recettes
+            </button>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          class="action-primary"
+          :disabled="isGenerating"
+          @click="generateMoreRecipes"
+        >
+          {{ isGenerating ? '⏳ Gemini cuisine tes idées...' : `✨ Générer ${genConfig.count} recettes` }}
+        </button>
+      </div>
+    </div>
+
     <!-- MODALE DÉTAIL RECETTE -->
     <div v-if="selectedRecipe" class="modal-overlay" @click.self="selectedRecipe = null">
       <div class="modal-sheet">
@@ -147,7 +240,6 @@
           <span v-if="selectedRecipe.macros" class="macro-pill">{{ selectedRecipe.macros }}</span>
         </div>
 
-        <!-- Ingrédients + Corrélation Stock -->
         <div class="detail-section">
           <h4>Ingrédients & Stock</h4>
           <div class="ing-preview">
@@ -165,13 +257,11 @@
           </div>
         </div>
 
-        <!-- Étapes -->
         <div class="detail-section">
           <h4>Préparation</h4>
           <p class="detail-steps">{{ selectedRecipe.steps }}</p>
         </div>
 
-        <!-- Actions -->
         <div class="detail-actions">
           <button
             v-if="missingForSelected.length > 0"
@@ -220,8 +310,90 @@ const activeTab = ref('discover')
 const isGenerating = ref(false)
 const isActionBusy = ref(false)
 const selectedRecipe = ref(null)
+const showGenModal = ref(false)
 const toastMsg = ref('')
 const toastType = ref('success')
+
+// Configuration génération IA
+const genConfig = ref({
+  taste: 'Salé',
+  vibe: 'Gourmande',
+  count: 15,
+})
+
+const tasteOptions = [
+  { value: 'Salé', label: '🍽️ Salé' },
+  { value: 'Sucré', label: '🍨 Sucré' },
+  { value: 'Mix', label: '🎲 Mix' },
+]
+
+const vibeOptions = [
+  { value: 'Gourmande', label: '🤤 Gourmande' },
+  { value: 'Réconfortante', label: '🍲 Réconfortante' },
+  { value: 'Fraîche', label: '🥗 Fraîche' },
+  { value: 'Rapide', label: '⚡ Rapide (<15m)' },
+  { value: 'Découverte', label: '🌍 Découverte' },
+  { value: 'Sèche / Protéinée', label: '💪 Sèche / Protéinée' },
+]
+
+// État du swipe tactile
+const touchStartX = ref(0)
+const touchStartY = ref(0)
+const swipeX = ref(0)
+const isDragging = ref(false)
+const isHorizontalSwipe = ref(null)
+
+const cardTransformStyle = computed(() => {
+  const rotate = swipeX.value * 0.045
+  return {
+    transform: `translateX(${swipeX.value}px) rotate(${rotate}deg)`,
+  }
+})
+
+const onTouchStart = (e) => {
+  if (!e.touches?.length) return
+  touchStartX.value = e.touches[0].clientX
+  touchStartY.value = e.touches[0].clientY
+  isDragging.value = true
+  isHorizontalSwipe.value = null
+}
+
+const onTouchMove = (e) => {
+  if (!isDragging.value || !e.touches?.length) return
+  const dx = e.touches[0].clientX - touchStartX.value
+  const dy = e.touches[0].clientY - touchStartY.value
+
+  if (isHorizontalSwipe.value === null && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
+    isHorizontalSwipe.value = Math.abs(dx) > Math.abs(dy)
+  }
+
+  if (isHorizontalSwipe.value) {
+    e.preventDefault()
+    swipeX.value = dx
+  }
+}
+
+const onTouchEnd = () => {
+  if (!isDragging.value) return
+  isDragging.value = false
+
+  const threshold = 95
+  if (swipeX.value > threshold && currentCard.value) {
+    triggerButtonVote(currentCard.value, 'liked')
+  } else if (swipeX.value < -threshold && currentCard.value) {
+    triggerButtonVote(currentCard.value, 'disliked')
+  } else {
+    swipeX.value = 0
+  }
+}
+
+const triggerButtonVote = (recipe, nextStatus) => {
+  swipeX.value = nextStatus === 'liked' ? 360 : -360
+  setTimeout(() => {
+    swipeX.value = 0
+    voteRecipe(recipe, nextStatus)
+  }, 180)
+}
 
 const showToast = (msg, type = 'success') => {
   toastMsg.value = msg
@@ -242,7 +414,6 @@ const normalize = (str) =>
     .replace(/[\u0300-\u036f]/g, '')
     .trim()
 
-// Convertit g/kg et ml/L pour comparer les quantités proprement
 const toBaseQty = (qty, unit) => {
   const n = Number(qty) || 0
   const u = normalize(unit)
@@ -316,7 +487,6 @@ const analyzeIngredients = (recipe) => {
       }
     }
 
-    // Unités différentes mais présent en stock
     return {
       ...ing,
       quantity: qty,
@@ -365,7 +535,14 @@ const generateMoreRecipes = async () => {
   isGenerating.value = true
 
   try {
-    const { data, error } = await supabase.functions.invoke('generate-recipes')
+    const { data, error } = await supabase.functions.invoke('generate-recipes', {
+      body: {
+        taste: genConfig.value.taste,
+        vibe: genConfig.value.vibe,
+        count: genConfig.value.count,
+      },
+    })
+
     if (error) {
       let errMsg = error.message
       try {
@@ -380,8 +557,9 @@ const generateMoreRecipes = async () => {
 
     if (data?.recipes?.length) {
       recipes.value = [...data.recipes, ...recipes.value]
+      showGenModal.value = false
       activeTab.value = 'discover'
-      showToast(`${data.recipes.length} nouvelles recettes générées !`)
+      showToast(`${data.recipes.length} recettes (${genConfig.value.vibe}) ajoutées !`)
     }
   } finally {
     isGenerating.value = false
@@ -496,6 +674,7 @@ onMounted(fetchAll)
   display: flex;
   flex-direction: column;
   gap: 14px;
+  overflow-x: hidden;
 }
 
 .page-head {
@@ -557,12 +736,49 @@ onMounted(fetchAll)
   box-shadow: var(--shadow);
 }
 
-/* Carte Tinder */
+/* Carte Tinder + Swipe */
 .tinder-card {
+  position: relative;
   padding: 18px 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  transition: transform 0.22s ease;
+  touch-action: pan-y;
+  user-select: none;
+}
+
+.tinder-card.is-dragging {
+  transition: none;
+}
+
+.swipe-stamp {
+  position: absolute;
+  top: 22px;
+  padding: 6px 14px;
+  border-radius: 10px;
+  font-size: 1rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  border: 3px solid;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.like-stamp {
+  left: 18px;
+  color: var(--success);
+  border-color: var(--success);
+  background-color: rgba(16, 185, 129, 0.12);
+  transform: rotate(-12deg);
+}
+
+.nope-stamp {
+  right: 18px;
+  color: var(--danger);
+  border-color: var(--danger);
+  background-color: rgba(239, 68, 68, 0.12);
+  transform: rotate(12deg);
 }
 
 .card-top,
@@ -647,9 +863,7 @@ onMounted(fetchAll)
 .ing-dot.partial { background-color: var(--warning); }
 .ing-dot.missing { background-color: var(--danger); }
 
-.ing-text {
-  flex: 1;
-}
+.ing-text { flex: 1; }
 
 .ing-state-txt {
   font-size: 0.7rem;
@@ -687,6 +901,57 @@ onMounted(fetchAll)
 
 .swipe-btn.like {
   background-color: var(--success);
+  color: #ffffff;
+}
+
+.swipe-hint {
+  text-align: center;
+  font-size: 0.7rem;
+  color: var(--text-light);
+  opacity: 0.75;
+}
+
+/* Modale Génération IA */
+.gen-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gen-group label {
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: var(--text-light);
+}
+
+.chip-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.chip-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.choice-chip {
+  height: 40px;
+  padding: 0 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background-color: var(--input-bg);
+  color: var(--text-main);
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.choice-chip.active {
+  background-color: var(--primary);
+  border-color: var(--primary);
   color: #ffffff;
 }
 
@@ -846,9 +1111,7 @@ onMounted(fetchAll)
   color: var(--text-light);
 }
 
-.mt-btn {
-  margin-top: 14px;
-}
+.mt-btn { margin-top: 14px; }
 
 .toast-banner {
   position: fixed;

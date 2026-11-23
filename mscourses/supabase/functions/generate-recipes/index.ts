@@ -30,11 +30,29 @@ serve(async (req: Request) => {
       throw new Error("Variable d'environnement GEMINI_API_KEY manquante.");
     }
 
+    let taste = "Mix";
+    let vibe = "Gourmande";
+    let count = 15;
+
+    try {
+      const body = await req.json();
+      if (body?.taste) taste = String(body.taste);
+      if (body?.vibe) vibe = String(body.vibe);
+      if (body?.count) {
+        const parsedCount = Number(body.count);
+        if (Number.isFinite(parsedCount)) {
+          count = Math.min(20, Math.max(5, Math.round(parsedCount)));
+        }
+      }
+    } catch {
+      // Valeurs par défaut si aucun body
+    }
+
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     const [inventoryRes, recipesRes] = await Promise.all([
       supabase.from("inventory").select("name, current_quantity, unit"),
-      supabase.from("recipes").select("title, status").order("created_at", { ascending: false }).limit(120),
+      supabase.from("recipes").select("title, status").order("created_at", { ascending: false }).limit(150),
     ]);
 
     const stockList = (inventoryRes.data || [])
@@ -47,41 +65,58 @@ serve(async (req: Request) => {
     const dislikedTitles = allRecipes.filter((r) => r.status === "disliked").map((r) => r.title);
     const allExistingTitles = allRecipes.map((r) => r.title);
 
-    const systemInstruction = `Tu es le chef nutritionniste de Matthew (MSCourses).
-PROFIL :
-- Foyer : 2 personnes, musculation / sèche, alimentation riche en protéines (poulet, bœuf haché 5%, œufs, skyr, thon, tofu), glucides maîtrisés (riz basmati, patate douce, pâtes, avoine).
+    const isCutMode = vibe.toLowerCase().includes("sèche");
+
+    const systemInstruction = `Tu es le chef créatif de Matthew (MSCourses) pour un foyer de 2 personnes.
+
+APPAREILS DISPONIBLES EN CUISINE :
+- Airfryer 6L Moulinex
+- BlendUp Moulinex (blender)
+- Dolci Moulinex (machine à glaces / sorbets / desserts glacés)
+- Four traditionnel
+- Micro-ondes
+- Plaque de cuisson
+- Mixeur plongeur
+Exploite intelligemment ces appareils selon les recettes (Airfryer pour le croustillant, Dolci pour les glaces/desserts sucrés, BlendUp pour smoothies/sauces/pâtes, etc.) et mentionne l'appareil dans les étapes quand c'est pertinent.
+
+PHILOSOPHIE & CONTRAINTES :
+- ${isCutMode ? "Objectif demandé : Recettes adaptées à la SÈCHE (riches en protéines, calories maîtrisées)." : "Objectif général : Recettes PLAISIR & WEEK-END variées et créatives (pas limitées à un régime de sèche)."}
+- DÉCOUVERTE AVANT TOUT : Ne te limite SURTOUT PAS au stock actuel. Propose des plats variés, des cuisines du monde et de vraies découvertes. Tu peux utiliser quelques produits du stock en bonus, mais priorité absolue à l'envie demandée.
 - EXCLUSION STRICTE : JAMAIS de beurre de cacahuète (peanut butter).
-- DIVERSITÉ : Propose des recettes variées (plats batch cooking, repas plaisir samedi soir macro-friendly, petits-déjeuners, collations).
-- MÉMOIRE : Inspire-toi du style des recettes LIKÉES, évite absolument le style des recettes DISLIKÉES, et ne propose JAMAIS un titre déjà existant.
-- CORRÉLATION STOCK : Pour les ingrédients courants présents dans le stock fourni, réutilise autant que possible les mêmes noms simples (ex: "Filet de poulet", "Riz Basmati", "Boeuf hachée 5 %", "Oeuf", "Skyr") avec des quantités réalistes en g, kg, L, ml ou unité(s).
+- MÉMOIRE : Inspire-toi du style des recettes LIKÉES, bannis le style des recettes DISLIKÉES, et ne répète JAMAIS un titre déjà proposé.
+- FORMAT INGRÉDIENTS : Utilise des noms d'ingrédients simples et standards (ex: "Filet de poulet", "Oeuf", "Farine", "Lait demi-écrémé", "Riz Basmati") avec des quantités réalistes pour 2 personnes en g, kg, L, ml ou unité(s).
 
 Réponds UNIQUEMENT en JSON valide respectant strictement le schéma demandé.`;
 
-    const userPrompt = `STOCK ACTUEL DISPONIBLE :
-${stockList || "Stock vide"}
+    const userPrompt = `DEMANDE ACTUELLE :
+- Type : ${taste} (si "Salé" : 100% salé ; si "Sucré" : 100% sucré/desserts/glaces Dolci/goûters ; si "Mix" : mélange équilibré salé + sucré)
+- Envie / Ambiance : ${vibe}
+- Nombre exact de recettes à générer : ${count}
 
-RECETTES LIKÉES (à privilégier dans le style) :
+STOCK ACTUEL (à titre purement indicatif, ne te restreins pas à cette liste) :
+${stockList || "Non renseigné"}
+
+RECETTES LIKÉES :
 ${likedTitles.length ? likedTitles.join(" | ") : "Aucune encore"}
 
-RECETTES DISLIKÉES (à éviter absolument) :
+RECETTES DISLIKÉES (à éviter) :
 ${dislikedTitles.length ? dislikedTitles.join(" | ") : "Aucune encore"}
 
 TITRES DÉJÀ PROPOSÉS (interdiction de répéter) :
 ${allExistingTitles.length ? allExistingTitles.join(" | ") : "Aucun"}
 
-Génère exactement 5 nouvelles recettes originales au format JSON :
+Génère exactement ${count} nouvelles recettes originales au format JSON :
 {
   "recipes": [
     {
-      "title": "Nom court et appétissant de la recette",
-      "category": "Plat | Plaisir | Petit-déj | Collation",
+      "title": "Nom court et appétissant",
+      "category": "${taste === "Sucré" ? "Sucré" : "Salé"} • ${vibe}",
       "prep_time": "ex: 20 min",
-      "macros": "ex: ~580 kcal • 52g P • 60g G • 12g L",
+      "macros": "ex: ~650 kcal • 38g P",
       "ingredients": [
-        { "name": "Filet de poulet", "quantity": 300, "unit": "g" },
-        { "name": "Riz Basmati", "quantity": 150, "unit": "g" }
+        { "name": "Ingrédient", "quantity": 200, "unit": "g" }
       ],
-      "steps": "Étapes claires et concises en 3 à 5 phrases."
+      "steps": "Étapes concises en 2 à 4 phrases (mentionne l'appareil utilisé si pertinent)."
     }
   ]
 }`;
@@ -89,20 +124,20 @@ Génère exactement 5 nouvelles recettes originales au format JSON :
     const CANDIDATE_MODELS = [
       {
         name: "gemini-3.6-flash",
-        timeoutMs: 22000,
+        timeoutMs: 38000,
         generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 2200,
+          temperature: 0.85,
+          maxOutputTokens: 6000,
           responseMimeType: "application/json",
           thinkingConfig: { thinkingLevel: "low" },
         },
       },
       {
         name: "gemini-3.8-flash",
-        timeoutMs: 20000,
+        timeoutMs: 35000,
         generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 2200,
+          temperature: 0.85,
+          maxOutputTokens: 6000,
           responseMimeType: "application/json",
           thinkingConfig: { thinkingLevel: "low" },
         },
@@ -168,7 +203,7 @@ Génère exactement 5 nouvelles recettes originales au format JSON :
 
     const rowsToInsert = generated.map((r: any) => ({
       title: String(r.title || "Recette sans titre").trim(),
-      category: String(r.category || "Plat").trim(),
+      category: String(r.category || `${taste} • ${vibe}`).trim(),
       prep_time: String(r.prep_time || "15 min").trim(),
       macros: String(r.macros || "").trim(),
       ingredients: Array.isArray(r.ingredients) ? r.ingredients : [],
