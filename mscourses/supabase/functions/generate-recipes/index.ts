@@ -113,7 +113,7 @@ Génère exactement ${count} nouvelles recettes originales au format JSON :
       "title": "Nom court et appétissant",
       "category": "${taste === "Sucré" ? "Sucré" : "Salé"} • ${vibe}",
       "prep_time": "ex: 25 min",
-      "macros": "ex: ~620 kcal • 38g P",
+      "macros": "ex: ~620 kcal • 45g P • 58g G • 18g L (OBLIGATOIRE : toujours indiquer kcal, P, G et L)",
       "summary": "Résumé appétissant en 1 à 2 phrases pour la carte Tinder.",
       "ingredients": [
         { "name": "Myrtilles", "quantity": 100, "unit": "g", "note": "surgelées, incorporer encore gelées" }

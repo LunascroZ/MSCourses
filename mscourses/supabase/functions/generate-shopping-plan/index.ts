@@ -59,6 +59,7 @@ interface GeminiAlternativeRow {
   alternative_product?: string;
   where_to_find?: string;
   estimated_price?: string;
+  price_source?: string;
   benefit?: string;
 }
 
@@ -96,6 +97,13 @@ const normalizeStoreName = (raw?: string): string => {
   }
   return "Autre";
 };
+
+const normalizeKey = (s: string): string =>
+  (s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
 
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -138,7 +146,7 @@ serve(async (req: Request) => {
         .from("purchase_history")
         .select("*")
         .order("purchase_date", { ascending: false })
-        .limit(80),
+        .limit(250),
       supabase
         .from("store_prices")
         .select("sector, store, search_term, product_name, price, unit_price, promo_label")
@@ -165,6 +173,63 @@ serve(async (req: Request) => {
     const inventoryItems = inventoryRes.data || [];
     const purchaseHistory = historyRes.data || [];
     const allPrices: StorePriceRow[] = pricesRes.data || [];
+
+    // Agrégation de l'historique des prix réels : dernier prix payé par (produit + enseigne)
+    const latestPriceMap = new Map<
+      string,
+      {
+        name: string;
+        store: string;
+        price: number;
+        quantity: number;
+        unit: string;
+        date: string;
+      }
+    >();
+
+    for (const row of purchaseHistory) {
+      const priceNum = Number(row.price ?? 0);
+      if (priceNum <= 0 || !row.name) continue;
+      const key = `${normalizeKey(row.name)}__${normalizeKey(row.store || "Autre")}`;
+      if (!latestPriceMap.has(key)) {
+        latestPriceMap.set(key, {
+          name: row.name,
+          store: row.store || "Autre",
+          price: priceNum,
+          quantity: Number(row.quantity ?? 1) || 1,
+          unit: row.unit || "unité(s)",
+          date: row.purchase_date ? String(row.purchase_date).slice(0, 10) : "récent",
+        });
+      }
+    }
+
+    const draftNamesNorm = draftItems.map((d) => normalizeKey(d.name));
+    const matchedHistory: string[] = [];
+    const otherHardDiscountHistory: string[] = [];
+
+    for (const entry of latestPriceMap.values()) {
+      const entryNorm = normalizeKey(entry.name);
+      const line = `- ${entry.name} [${entry.store}] : ${entry.price.toFixed(2)}€ pour ${entry.quantity} ${entry.unit} (le ${entry.date})`;
+
+      const isInDraft = draftNamesNorm.some(
+        (dn) => dn.length >= 3 && (dn.includes(entryNorm) || entryNorm.includes(dn))
+      );
+
+      if (isInDraft) {
+        matchedHistory.push(line);
+      } else if (
+        ["lidl", "action", "aldi", "grand frais", "asia"].some((st) =>
+          normalizeKey(entry.store).includes(st)
+        )
+      ) {
+        otherHardDiscountHistory.push(line);
+      }
+    }
+
+    const realHistoryContext = [
+      ...matchedHistory,
+      ...otherHardDiscountHistory.slice(0, 40),
+    ].join("\n");
 
     // Structuration compacte des prix Drive (filtrés sur le brouillon) vs Promos Anti-Crise
     const drivePricesByTerm: Record<string, StorePriceRow[]> = {};
@@ -277,25 +342,27 @@ PÉRIMÈTRES ET LIBERTÉ D'ARBITRAGE :
   - Pépites & Spécialisés : Grand Frais Petite-Forêt / Valenciennes, Paris Store / épiceries spécialisées.
 
 CONSIGNES D'ARBITRAGE, DE SUBSTITUTION ET DE LOGISTIQUE :
-1. Règle du détour rentable : Ne propose un détour vers une enseigne satellite (Lidl, Aldi, Action, Grand Frais, Asia, Carrefour périphérique...) que si le gain cumulé compense clairement le temps et le carburant. Justifie toujours ce choix.
-2. Alternatives intelligentes & Substitutions ("alternatives_table" + "alternative_tip") :
+1. Hiérarchie de fiabilité des prix & fin du biais Drive :
+  - Les PRIX RÉELS HISTORIQUES (HISTORIQUE DES PRIX RÉELS PAYÉS EN MAGASIN) et les PRIX DRIVE OFFICIELS sont à égalité en tant que sources fiables.
+  - NE FAVORISE PLUS SYSTÉMATIQUEMENT LES DRIVES (Leclerc/Carrefour) : si un produit du brouillon a un prix réel récent moins cher chez Lidl, Aldi, Action, Grand Frais ou Asia dans l'historique, utilise ce prix réel pour arbitrer en sa faveur.
+  - Renseigne "price_reliability" avec :
+    * "Vérifié (Historique réel)" si tu t'appuies sur HISTORIQUE DES PRIX RÉELS PAYÉS EN MAGASIN,
+    * "Prix Drive vérifié" si tu t'appuies sur PRIX DRIVE DU JOUR,
+    * "Probable (arrivages / catalogue)" uniquement si le produit n'est dans aucune des deux bases.
+2. Règle du détour rentable : Ne propose un détour vers une enseigne satellite (Lidl, Aldi, Action, Grand Frais, Asia, Carrefour périphérique...) que si le gain cumulé (au moins ~1,50 € ou regroupement de plusieurs articles / produits spécifiques) compense clairement le temps et le carburant. Justifie toujours ce choix.
+3. Alternatives intelligentes & Substitutions ("alternatives_table" + "alternative_tip") :
   - Coût / Volume : Pour les grandes marques, propose l'équivalent MDD ou gros volume (ex: Chocoblast au lieu de Nutella, sacs de 5kg de riz).
-  - Goût & Macros : Si un produit gagne à être remplacé par un équivalent plus noble, plus économique ou meilleur en macros sans exploser les calories (ex: bavette d'aloyau en promo vs steak haché, pâtes complètes/konjac), propose la substitution en l'expliquant.
+  - Goût & Macros : Si un produit gagne à être remplacé par un équivalent plus noble, plus économique ou meilleur en macros sans exploser les calories, propose la substitution en l'expliquant.
   - Débouchés en ligne : Si un article est introuvable ou hors de prix en grande surface (sauces 0 kcal, compléments sportifs, gros sacs d'avoine), indique l'alternative en ligne.
-3. Action : Référence absolue pour l'hygiène, la droguerie et l'entretien (sacs poubelle, lessive, etc.).
-4. Transparence des prix : Indique dans "price_reliability" soit "Prix Drive vérifié" (Leclerc/Carrefour issus des relevés Drive), soit "Probable (arrivages / catalogue)" (Action, Lidl, Aldi, Grand Frais).
-- Pour chaque entrée de "alternatives_table", renseigne obligatoirement "price_source" avec l'une de ces 3 valeurs exactes :
-  - "Drive vérifié" (uniquement si le prix exact figure dans PRIX DRIVE DU JOUR),
-  - "Catalogue promo" (uniquement si le prix figure dans PROMOS CATALOGUES ANTI-CRISE),
-  - "Estimation IA" (pour Grand Frais, Action, Lidl, Aldi, Asia ou en ligne sans relevé exact). Ne fais JAMAIS passer une estimation pour un prix vérifié.
-5. Mémoire & Historique (3 semaines) : Signale dans "history_alerts" les produits non périssables déjà achetés récemment dans l'historique fourni.
-6. Ordre de tournée : Respecte la chaîne du froid (sec / Action d'abord, frais / surgelés en dernier).
-7. Quantité & Unité réelles (CRITIQUE) :
+4. Action : Référence absolue pour l'hygiène, la droguerie et l'entretien (sacs poubelle, lessive, etc.).
+5. Source des prix dans "alternatives_table" :
+  - Renseigne obligatoirement "price_source" avec l'une de ces 3 valeurs exactes : "Drive vérifié" (uniquement si présent dans PRIX DRIVE DU JOUR ou l'historique réel), "Catalogue promo" (uniquement si présent dans PROMOS CATALOGUES ANTI-CRISE), ou "Estimation IA" (Grand Frais, Action, Lidl, Aldi, Asia ou en ligne sans relevé exact).
+6. Mémoire & Historique (3 semaines) : Signale dans "history_alerts" les produits non périssables déjà achetés récemment dans l'historique fourni.
+7. Ordre de tournée : Respecte la chaîne du froid (sec / Action d'abord, frais / surgelés en dernier).
+8. Quantité & Unité réelles (CRITIQUE) :
   - Pour tout produit alimentaire ou liquide ayant un poids/volume indiqué (ex: barquette 350g, filet 1kg, pack 6x1L), renseigne OBLIGATOIREMENT la quantité et l'unité réelles totales achetées (ex: "quantity": 350, "unit": "g" ou "quantity": 700, "unit": "g" si tu conseilles 2 barquettes ; "quantity": 6, "unit": "L"). Ne mets JAMAIS "1 unité(s)" si le produit a un poids ou un volume.
   - Utilise "unité(s)" uniquement pour les articles comptables sans poids/volume pertinent (ex: boîte de mouchoirs, œufs -> 12 unité(s), sacs poubelle -> 20 unité(s)).
   - Si tu conseilles plusieurs packs/barquettes pour couvrir le besoin du brouillon, indique-le dans "matched_product" (ex: "2x Viande hachée 5% MG Férial 350g") et calcule "total_price" en conséquence.
-8. Source des prix dans "alternatives_table" :
-  - Renseigne obligatoirement "price_source" avec l'une de ces 3 valeurs exactes : "Drive vérifié" (uniquement si présent dans PRIX DRIVE DU JOUR), "Catalogue promo" (uniquement si présent dans PROMOS CATALOGUES ANTI-CRISE), ou "Estimation IA" (Grand Frais, Action, Lidl, Aldi, Asia ou en ligne sans relevé exact).
 
 Ne génère PAS d'idées de recettes ni de veille électroménager/tech : concentre-toi uniquement sur le panier, l'arbitrage magasin par magasin, la tournée et le tableau des alternatives.
 Réponds UNIQUEMENT en JSON valide respectant strictement le schéma demandé.`;
@@ -303,7 +370,12 @@ Réponds UNIQUEMENT en JSON valide respectant strictement le schéma demandé.`;
     const userPrompt = `SECTEUR : ${activeSector}
 BESOINS (draft_list) : ${JSON.stringify(compactDrafts)}
 STOCK ACTUEL (inventory) : ${JSON.stringify(compactInventory)}
-HISTORIQUE RÉCENT (purchase_history) : ${JSON.stringify(compactHistory)}
+
+HISTORIQUE DES PRIX RÉELS PAYÉS EN MAGASIN (Lidl, Action, Grand Frais, Aldi, Leclerc, etc.) :
+${realHistoryContext || "Aucun historique de prix réel enregistré pour le moment."}
+
+DERNIERS ACHATS CHRONOLOGIQUES (détection doublons 3 semaines) :
+${JSON.stringify(compactHistory)}
 
 PRIX DRIVE DU JOUR (Leclerc & Carrefour) :
 ${formattedDriveContext || "Aucun relevé Drive disponible."}
@@ -334,8 +406,8 @@ Format JSON strict attendu :
           "unit": "g",
           "unit_price_paid": 5.71,
           "total_price": 5.71,
-          "price_reliability": "Prix Drive vérifié",
-          "reason": "Justification précise : comparaison €/kg, -5% Carrefour, proximité, promo catalogue",
+          "price_reliability": "Vérifié (Historique réel) | Prix Drive vérifié | Probable (arrivages / catalogue)",
+          "reason": "Justification précise : comparaison €/kg, historique réel Lidl/Action/Grand Frais, -5% Carrefour, proximité",
           "alternative_tip": "Substitution courte MDD / gros volume / macro (ou null)"
         }
       ]
@@ -353,7 +425,6 @@ Format JSON strict attendu :
   ]
 }`;
 
-    // Appel Gemini rapide avec thinkingLevel: "low" (qualité d'arbitrage sans timeout)
     const CANDIDATE_MODELS = [
       { name: "gemini-3.6-flash", timeoutMs: 45000 },
       { name: "gemini-3.8-flash", timeoutMs: 45000 },
@@ -363,13 +434,16 @@ Format JSON strict attendu :
     let firstDetailedError = "";
 
     for (const cfg of CANDIDATE_MODELS) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), cfg.timeoutMs);
+
       try {
         const res = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/${cfg.name}:generateContent?key=${geminiApiKey}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            signal: AbortSignal.timeout(cfg.timeoutMs),
+            signal: controller.signal,
             body: JSON.stringify({
               systemInstruction: {
                 parts: [{ text: systemInstruction }],
@@ -406,6 +480,8 @@ Format JSON strict attendu :
         const formattedErr = `[${cfg.name} -> exception] ${msg}`;
         console.warn(formattedErr);
         if (!firstDetailedError) firstDetailedError = formattedErr;
+      } finally {
+        clearTimeout(timer);
       }
     }
 
@@ -420,7 +496,6 @@ Format JSON strict attendu :
 
     const parsedPlan = JSON.parse(rawText) as GeminiArbitragePlan;
 
-    // Insertion dans shopping_list avec enseigne normalisée, unité, justification et alternative
     if (Array.isArray(parsedPlan.stores)) {
       const draftByName = new Map<string, DraftRow>();
       for (const d of draftItems) {
@@ -468,7 +543,6 @@ Format JSON strict attendu :
       }
     }
 
-    // Sauvegarde du brief logistique + tableau des alternatives
     try {
       await supabase.from("shopping_briefs").insert({
         sector: activeSector,

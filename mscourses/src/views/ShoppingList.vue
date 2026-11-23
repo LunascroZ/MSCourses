@@ -229,6 +229,55 @@
         </div>
       </div>
     </section>
+    <!-- Encadré dépliable : Top Promos Catalogues -->
+    <section v-if="topPromos.length > 0" class="ms-card promos-card">
+      <button
+        type="button"
+        class="brief-toggle"
+        @click="showPromos = !showPromos"
+      >
+        <div class="brief-toggle-left">
+          <span class="promos-badge">🏷️ Top Promos Catalogues</span>
+          <span class="promos-count">{{ topPromos.length }}</span>
+        </div>
+        <span class="chevron">{{ showPromos ? '▲' : '▼' }}</span>
+      </button>
+
+      <div v-if="showPromos" class="promos-list">
+        <div
+          v-for="(promo, idx) in topPromos"
+          :key="idx"
+          class="promo-row"
+        >
+          <div class="promo-info">
+            <div class="promo-top">
+              <span
+                class="promo-store-tag"
+                :style="{ backgroundColor: getStoreAccent(promo.store) }"
+              >
+                {{ promo.store }}
+              </span>
+              <span v-if="promo.promo_label" class="promo-label-tag">
+                {{ promo.promo_label }}
+              </span>
+            </div>
+            <span class="promo-name">{{ promo.product_name }}</span>
+            <span class="promo-price">
+              {{ Number(promo.price).toFixed(2) }} €
+              <small v-if="promo.unit_price">({{ promo.unit_price }})</small>
+            </span>
+          </div>
+
+          <button
+            type="button"
+            class="promo-add-btn"
+            @click="addPromoToBasket(promo)"
+          >
+            + Panier
+          </button>
+        </div>
+      </div>
+    </section>
 
     <!-- Bouton flottant de validation des achats -->
     <div v-if="hasCheckedItems" class="floating-validate">
@@ -578,7 +627,7 @@ const fetchLatestBrief = async () => {
 const refreshAll = async () => {
   isLoading.value = true
   try {
-    await Promise.all([fetchList(), fetchLatestBrief()])
+    await Promise.all([fetchList(), fetchLatestBrief(), fetchTopPromos()])
   } finally {
     isLoading.value = false
   }
@@ -720,6 +769,90 @@ onMounted(() => {
 onUnmounted(() => {
   if (realtimeChannel) supabase.removeChannel(realtimeChannel)
 })
+
+const topPromos = ref([])
+const showPromos = ref(false)
+
+// Score les promos pour faire remonter les meilleurs deals (gros rabais + produits utiles)
+const scorePromo = (p) => {
+  const text = `${p.product_name || ''} ${p.promo_label || ''}`.toLowerCase()
+  let score = 0
+
+  // Gros pourcentages ou offres lots
+  if (/(1\s*\+\s*1|2\s*\+\s*1|gratuit|-50%|-60%|-70%|2ème.*-68%|2ème.*-70%)/i.test(text)) score += 50
+  else if (/(-30%|-34%|-40%|2ème.*-50%)/i.test(text)) score += 30
+  else if (p.promo_label) score += 10
+
+  // Produits piliers (protéines, féculents, café, entretien)
+  if (/(poulet|dinde|boeuf|steak|haché|saumon|thon|oeuf|skyr|fromage blanc|whey|riz|pâtes|café|grain|lessive|essuie)/i.test(text)) {
+    score += 25
+  }
+
+  return score
+}
+
+const fetchTopPromos = async () => {
+  const { data: configRows } = await supabase
+    .from('app_config')
+    .select('active_sector')
+    .limit(1)
+
+  const activeSector = configRows?.[0]?.active_sector || 'Thionville/Terville'
+
+  const { data, error } = await supabase
+    .from('store_prices')
+    .select('store, product_name, price, unit_price, promo_label')
+    .eq('sector', activeSector)
+    .eq('search_term', 'promo_catalogue')
+    .gt('price', 0)
+    .limit(80)
+
+  if (!error && data) {
+    // Dédoublonne par produit+magasin, trie par pertinence et garde le Top 12
+    const seen = new Set()
+    topPromos.value = data
+      .filter(p => {
+        const key = `${(p.store || '').toLowerCase()}__${(p.product_name || '').toLowerCase()}`
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+      .sort((a, b) => scorePromo(b) - scorePromo(a) || Number(a.price) - Number(b.price))
+      .slice(0, 12)
+  }
+}
+
+const addPromoToBasket = async (promo) => {
+  const normalizedStore = allowedStores.find(
+    s => s.toLowerCase() === (promo.store || '').toLowerCase()
+  ) || 'Autre'
+
+  const { data, error } = await supabase
+    .from('shopping_list')
+    .insert([
+      {
+        name: promo.product_name,
+        quantity: 1,
+        unit: 'unité(s)',
+        store: normalizedStore,
+        estimated_price: Number(promo.price),
+        actual_price: Number(promo.price),
+        is_checked: false,
+        price_reliability: 'Promo catalogue',
+        reason: promo.promo_label || 'Bonne affaire catalogue',
+      },
+    ])
+    .select()
+    .single()
+
+  if (error) {
+    showToast(`Erreur : ${error.message}`, 'error')
+    return
+  }
+
+  if (data) shoppingList.value.push(data)
+  showToast(`"${promo.product_name}" ajouté dans ${normalizedStore}`)
+}
 </script>
 
 <style scoped>
@@ -1455,6 +1588,110 @@ onUnmounted(() => {
   text-align: center;
   z-index: 90;
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+}
+.promos-card {
+  padding: 14px;
+}
+
+.promos-badge {
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: var(--warning);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.promos-count {
+  font-size: 0.7rem;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background-color: rgba(245, 158, 11, 0.15);
+  color: var(--warning);
+}
+
+.promos-list {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.promo-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background-color: var(--input-bg);
+  border: 1px solid var(--border-color);
+}
+
+.promo-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.promo-top {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.promo-store-tag {
+  font-size: 0.64rem;
+  font-weight: 800;
+  color: #ffffff;
+  padding: 2px 7px;
+  border-radius: 6px;
+}
+
+.promo-label-tag {
+  font-size: 0.66rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background-color: rgba(245, 158, 11, 0.16);
+  color: var(--warning);
+}
+
+.promo-name {
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: var(--text-main);
+  line-height: 1.3;
+}
+
+.promo-price {
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: var(--success);
+}
+
+.promo-price small {
+  font-weight: 600;
+  color: var(--text-light);
+  margin-left: 4px;
+}
+
+.promo-add-btn {
+  padding: 7px 11px;
+  border-radius: 9px;
+  border: none;
+  background-color: var(--primary);
+  color: #ffffff;
+  font-size: 0.74rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  flex-shrink: 0;
 }
 
 .toast-banner.success { background-color: var(--success); }
