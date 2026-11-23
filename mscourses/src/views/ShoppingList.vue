@@ -774,18 +774,24 @@ const topPromos = ref([])
 const showPromos = ref(false)
 
 // Score les promos pour faire remonter les meilleurs deals (gros rabais + produits utiles)
+const promoSectorLabel = ref('')
+
+// Extrait le pourcentage réel "Catalogue -XX%" présent dans tes données
 const scorePromo = (p) => {
-  const text = `${p.product_name || ''} ${p.promo_label || ''}`.toLowerCase()
+  const label = p.promo_label || ''
+  const name = (p.product_name || '').toLowerCase()
   let score = 0
 
-  // Gros pourcentages ou offres lots
-  if (/(1\s*\+\s*1|2\s*\+\s*1|gratuit|-50%|-60%|-70%|2ème.*-68%|2ème.*-70%)/i.test(text)) score += 50
-  else if (/(-30%|-34%|-40%|2ème.*-50%)/i.test(text)) score += 30
-  else if (p.promo_label) score += 10
+  const pctMatch = label.match(/Catalogue\s*-(\d+)%/i)
+  if (pctMatch) {
+    score += Number(pctMatch[1]) // Ex: -70% -> +70 pts
+  } else if (/(1\s*\+\s*1|2\s*\+\s*1|gratuit)/i.test(`${name} ${label}`)) {
+    score += 50
+  }
 
-  // Produits piliers (protéines, féculents, café, entretien)
-  if (/(poulet|dinde|boeuf|steak|haché|saumon|thon|oeuf|skyr|fromage blanc|whey|riz|pâtes|café|grain|lessive|essuie)/i.test(text)) {
-    score += 25
+  // Bonus produits piliers (protéines, féculents, fromage, entretien)
+  if (/(poulet|dinde|boeuf|steak|haché|saumon|thon|oeuf|skyr|fromage|raclette|riz|pâtes|tortellini|lessive|dentifrice)/i.test(name)) {
+    score += 15
   }
 
   return score
@@ -799,16 +805,32 @@ const fetchTopPromos = async () => {
 
   const activeSector = configRows?.[0]?.active_sector || 'Thionville/Terville'
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('store_prices')
-    .select('store, product_name, price, unit_price, promo_label')
+    .select('sector, store, product_name, price, unit_price, promo_label')
     .eq('sector', activeSector)
     .eq('search_term', 'promo_catalogue')
     .gt('price', 0)
-    .limit(80)
+    .limit(120)
+
+  promoSectorLabel.value = activeSector
+
+  // Fallback si le secteur actif n'a pas encore été scrappé
+  if (!error && (!data || data.length === 0)) {
+    const fallbackRes = await supabase
+      .from('store_prices')
+      .select('sector, store, product_name, price, unit_price, promo_label')
+      .eq('search_term', 'promo_catalogue')
+      .gt('price', 0)
+      .order('created_at', { ascending: false })
+      .limit(120)
+
+    data = fallbackRes.data
+    error = fallbackRes.error
+    if (data?.length) promoSectorLabel.value = data[0].sector
+  }
 
   if (!error && data) {
-    // Dédoublonne par produit+magasin, trie par pertinence et garde le Top 12
     const seen = new Set()
     topPromos.value = data
       .filter(p => {
