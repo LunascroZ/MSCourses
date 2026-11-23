@@ -12,7 +12,7 @@
       </button>
     </div>
 
-    <!-- Segmented control -->
+    <!-- Segmented control 3 onglets -->
     <div class="segmented">
       <button
         type="button"
@@ -28,7 +28,15 @@
         :class="{ active: activeTab === 'liked' }"
         @click="activeTab = 'liked'"
       >
-        📖 Mes Recettes ({{ likedRecipes.length }})
+        📖 Gardées ({{ likedRecipes.length }})
+      </button>
+      <button
+        type="button"
+        class="seg-btn"
+        :class="{ active: activeTab === 'disliked' }"
+        @click="activeTab = 'disliked'"
+      >
+        ✕ Refusées ({{ dislikedRecipes.length }})
       </button>
     </div>
 
@@ -43,7 +51,6 @@
         @touchmove="onTouchMove"
         @touchend="onTouchEnd"
       >
-        <!-- Tampons visuels pendant le swipe -->
         <div
           v-if="swipeX > 30"
           class="swipe-stamp like-stamp"
@@ -70,6 +77,11 @@
           {{ currentCard.macros }}
         </div>
 
+        <!-- Résumé court pour le swipe -->
+        <p class="tinder-summary">
+          {{ currentCard.summary || currentCard.steps }}
+        </p>
+
         <!-- Résumé corrélation stock -->
         <div class="match-banner" :class="getStockSummary(currentCard).tone">
           <span>{{ getStockSummary(currentCard).label }}</span>
@@ -83,14 +95,15 @@
             class="ing-line"
           >
             <span class="ing-dot" :class="ing.status"></span>
-            <span class="ing-text">
-              {{ ing.name }} <strong>({{ ing.quantity }} {{ ing.unit }})</strong>
-            </span>
+            <div class="ing-text-wrap">
+              <span class="ing-text">
+                {{ ing.name }} <strong>({{ ing.quantity }} {{ ing.unit }})</strong>
+              </span>
+              <span v-if="ing.note" class="ing-note">{{ ing.note }}</span>
+            </div>
             <span class="ing-state-txt">{{ ing.statusLabel }}</span>
           </div>
         </div>
-
-        <p class="tinder-steps">{{ currentCard.steps }}</p>
 
         <!-- Boutons Like / Dislike -->
         <div class="tinder-actions">
@@ -129,32 +142,113 @@
       </div>
     </div>
 
-    <!-- ONGLET 2 : MES RECETTES LIKÉES -->
-    <div v-if="activeTab === 'liked'" class="liked-list">
-      <div v-if="likedRecipes.length === 0" class="ms-card empty-card">
-        <p class="empty-title">Aucune recette enregistrée</p>
-        <p class="empty-sub">Swipe à droite dans « Découvrir » pour sauvegarder tes coups de cœur.</p>
+    <!-- ONGLET 2 : RECETTES GARDÉES (AVEC RECHERCHE & FILTRES) -->
+    <div v-if="activeTab === 'liked'" class="liked-wrap">
+      <div class="search-wrap">
+        <input
+          v-model="likedSearch"
+          type="text"
+          placeholder="Rechercher une recette ou un ingrédient..."
+          class="search-input"
+        />
       </div>
 
-      <button
-        v-for="recipe in likedRecipes"
-        :key="recipe.id"
-        type="button"
-        class="ms-card liked-row"
-        @click="openRecipeDetail(recipe)"
-      >
-        <div class="liked-top">
-          <span class="cat-badge">{{ recipe.category || 'Plat' }}</span>
-          <span class="stock-chip" :class="getStockSummary(recipe).tone">
-            {{ getStockSummary(recipe).short }}
-          </span>
+      <div class="filter-strip">
+        <button
+          type="button"
+          class="filter-pill"
+          :class="{ active: likedFilter === 'ALL' }"
+          @click="likedFilter = 'ALL'"
+        >
+          Toutes ({{ likedRecipes.length }})
+        </button>
+        <button
+          type="button"
+          class="filter-pill"
+          :class="{ active: likedFilter === 'SALE' }"
+          @click="likedFilter = 'SALE'"
+        >
+          🍽️ Salé
+        </button>
+        <button
+          type="button"
+          class="filter-pill"
+          :class="{ active: likedFilter === 'SUCRE' }"
+          @click="likedFilter = 'SUCRE'"
+        >
+          🍨 Sucré
+        </button>
+        <button
+          type="button"
+          class="filter-pill"
+          :class="{ active: likedFilter === 'READY' }"
+          @click="likedFilter = 'READY'"
+        >
+          🟢 100% en stock
+        </button>
+      </div>
+
+      <div v-if="filteredLikedRecipes.length === 0" class="ms-card empty-card">
+        <p class="empty-title">Aucune recette correspondante</p>
+        <p class="empty-sub">Ajuste ton filtre ou swipe à droite dans « Découvrir ».</p>
+      </div>
+
+      <div class="liked-list">
+        <button
+          v-for="recipe in filteredLikedRecipes"
+          :key="recipe.id"
+          type="button"
+          class="ms-card liked-row"
+          @click="openRecipeDetail(recipe)"
+        >
+          <div class="liked-top">
+            <span class="cat-badge">{{ recipe.category || 'Plat' }}</span>
+            <span class="stock-chip" :class="getStockSummary(recipe).tone">
+              {{ getStockSummary(recipe).short }}
+            </span>
+          </div>
+          <h3 class="liked-title">{{ recipe.title }}</h3>
+          <p v-if="recipe.summary" class="liked-summary">{{ recipe.summary }}</p>
+          <div class="liked-meta">
+            <span>⏱️ {{ recipe.prep_time }}</span>
+            <span v-if="recipe.macros">• {{ recipe.macros }}</span>
+          </div>
+        </button>
+      </div>
+    </div>
+
+    <!-- ONGLET 3 : RECETTES REFUSÉES (MÉMOIRE GEMINI + RÉCUPÉRATION) -->
+    <div v-if="activeTab === 'disliked'" class="disliked-wrap">
+      <div class="memory-info">
+        🧠 Ces {{ dislikedRecipes.length }} recette(s) sont bien enregistrées en base : Gemini les évite automatiquement lors de ses prochaines générations.
+      </div>
+
+      <div v-if="dislikedRecipes.length === 0" class="ms-card empty-card">
+        <p class="empty-title">Aucune recette refusée</p>
+        <p class="empty-sub">Les recettes que tu passes apparaîtront ici.</p>
+      </div>
+
+      <div class="liked-list">
+        <div
+          v-for="recipe in dislikedRecipes"
+          :key="recipe.id"
+          class="ms-card disliked-row"
+        >
+          <div class="disliked-main" @click="openRecipeDetail(recipe)">
+            <span class="cat-badge muted">{{ recipe.category || 'Plat' }}</span>
+            <h3 class="liked-title">{{ recipe.title }}</h3>
+            <span class="disliked-meta">⏱️ {{ recipe.prep_time }}</span>
+          </div>
+          <button
+            type="button"
+            class="restore-btn"
+            title="Finalement je la garde"
+            @click="voteRecipe(recipe, 'liked')"
+          >
+            ♥ Garder
+          </button>
         </div>
-        <h3 class="liked-title">{{ recipe.title }}</h3>
-        <div class="liked-meta">
-          <span>⏱️ {{ recipe.prep_time }}</span>
-          <span v-if="recipe.macros">• {{ recipe.macros }}</span>
-        </div>
-      </button>
+      </div>
     </div>
 
     <!-- MODALE CONFIGURATION GÉNÉRATION IA -->
@@ -224,7 +318,7 @@
       </div>
     </div>
 
-    <!-- MODALE DÉTAIL RECETTE -->
+    <!-- MODALE DÉTAIL RECETTE (CARTES D'ÉTAPES FLOTTANTES) -->
     <div v-if="selectedRecipe" class="modal-overlay" @click.self="selectedRecipe = null">
       <div class="modal-sheet">
         <div class="modal-head">
@@ -240,6 +334,7 @@
           <span v-if="selectedRecipe.macros" class="macro-pill">{{ selectedRecipe.macros }}</span>
         </div>
 
+        <!-- Ingrédients + Précisions + Corrélation Stock -->
         <div class="detail-section">
           <h4>Ingrédients & Stock</h4>
           <div class="ing-preview">
@@ -249,46 +344,78 @@
               class="ing-line"
             >
               <span class="ing-dot" :class="ing.status"></span>
-              <span class="ing-text">
-                {{ ing.name }} <strong>({{ ing.quantity }} {{ ing.unit }})</strong>
-              </span>
+              <div class="ing-text-wrap">
+                <span class="ing-text">
+                  {{ ing.name }} <strong>({{ ing.quantity }} {{ ing.unit }})</strong>
+                </span>
+                <span v-if="ing.note" class="ing-note">{{ ing.note }}</span>
+              </div>
               <span class="ing-state-txt">{{ ing.statusLabel }}</span>
             </div>
           </div>
         </div>
 
+        <!-- Étapes en cartes flottantes numérotées -->
         <div class="detail-section">
-          <h4>Préparation</h4>
-          <p class="detail-steps">{{ selectedRecipe.steps }}</p>
+          <h4>Préparation étape par étape</h4>
+          <div class="steps-cards">
+            <div
+              v-for="(step, idx) in getStructuredSteps(selectedRecipe)"
+              :key="idx"
+              class="step-card"
+            >
+              <div class="step-card-head">
+                <span class="step-num">{{ String(idx + 1).padStart(2, '0') }}</span>
+                <span class="step-title">{{ step.title || `Étape ${idx + 1}` }}</span>
+              </div>
+              <div v-if="step.duration || step.appliance" class="step-badges">
+                <span v-if="step.duration" class="step-badge">⏱️ {{ step.duration }}</span>
+                <span v-if="step.appliance" class="step-badge appliance">🔥 {{ step.appliance }}</span>
+              </div>
+              <p class="step-detail">{{ step.detail }}</p>
+            </div>
+          </div>
         </div>
 
+        <!-- Actions -->
         <div class="detail-actions">
           <button
-            v-if="missingForSelected.length > 0"
-            type="button"
-            class="action-primary"
-            :disabled="isActionBusy"
-            @click="exportMissingToDraft(selectedRecipe)"
-          >
-            🛒 Envoyer {{ missingForSelected.length }} manquant(s) au Brouillon
-          </button>
-
-          <button
+            v-if="selectedRecipe.status === 'disliked'"
             type="button"
             class="action-success"
-            :disabled="isActionBusy"
-            @click="cookAndDeductStock(selectedRecipe)"
+            @click="restoreFromModal(selectedRecipe)"
           >
-            👨‍🍳 J'ai cuisiné (Déduire du stock)
+            ♥ Récupérer dans Mes Recettes
           </button>
 
-          <button
-            type="button"
-            class="action-danger"
-            @click="removeLikedRecipe(selectedRecipe)"
-          >
-            Retirer de mes recettes
-          </button>
+          <template v-else>
+            <button
+              v-if="missingForSelected.length > 0"
+              type="button"
+              class="action-primary"
+              :disabled="isActionBusy"
+              @click="exportMissingToDraft(selectedRecipe)"
+            >
+              🛒 Envoyer {{ missingForSelected.length }} manquant(s) au Brouillon
+            </button>
+
+            <button
+              type="button"
+              class="action-success"
+              :disabled="isActionBusy"
+              @click="cookAndDeductStock(selectedRecipe)"
+            >
+              👨‍🍳 J'ai cuisiné (Déduire du stock)
+            </button>
+
+            <button
+              type="button"
+              class="action-danger"
+              @click="removeLikedRecipe(selectedRecipe)"
+            >
+              Déplacer dans Refusées
+            </button>
+          </template>
         </div>
       </div>
     </div>
@@ -311,10 +438,11 @@ const isGenerating = ref(false)
 const isActionBusy = ref(false)
 const selectedRecipe = ref(null)
 const showGenModal = ref(false)
+const likedSearch = ref('')
+const likedFilter = ref('ALL')
 const toastMsg = ref('')
 const toastType = ref('success')
 
-// Configuration génération IA
 const genConfig = ref({
   taste: 'Salé',
   vibe: 'Gourmande',
@@ -336,7 +464,7 @@ const vibeOptions = [
   { value: 'Sèche / Protéinée', label: '💪 Sèche / Protéinée' },
 ]
 
-// État du swipe tactile
+// Swipe tactile
 const touchStartX = ref(0)
 const touchStartY = ref(0)
 const swipeX = ref(0)
@@ -345,9 +473,7 @@ const isHorizontalSwipe = ref(null)
 
 const cardTransformStyle = computed(() => {
   const rotate = swipeX.value * 0.045
-  return {
-    transform: `translateX(${swipeX.value}px) rotate(${rotate}deg)`,
-  }
+  return { transform: `translateX(${swipeX.value}px) rotate(${rotate}deg)` }
 })
 
 const onTouchStart = (e) => {
@@ -405,6 +531,7 @@ const showToast = (msg, type = 'success') => {
 
 const pendingRecipes = computed(() => recipes.value.filter(r => r.status === 'pending'))
 const likedRecipes = computed(() => recipes.value.filter(r => r.status === 'liked'))
+const dislikedRecipes = computed(() => recipes.value.filter(r => r.status === 'disliked'))
 const currentCard = computed(() => pendingRecipes.value[0] || null)
 
 const normalize = (str) =>
@@ -413,6 +540,41 @@ const normalize = (str) =>
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .trim()
+
+const filteredLikedRecipes = computed(() => {
+  const q = normalize(likedSearch.value)
+  return likedRecipes.value.filter(r => {
+    if (q) {
+      const inTitle = normalize(r.title).includes(q)
+      const inCat = normalize(r.category).includes(q)
+      const inIng = (r.ingredients || []).some(i => normalize(i.name).includes(q))
+      if (!inTitle && !inCat && !inIng) return false
+    }
+    const catNorm = normalize(r.category)
+    if (likedFilter.value === 'SALE') return !catNorm.includes('sucre')
+    if (likedFilter.value === 'SUCRE') return catNorm.includes('sucre') || catNorm.includes('dessert') || catNorm.includes('collation') || catNorm.includes('petit-dej')
+    if (likedFilter.value === 'READY') return getStockSummary(r).tone === 'ok'
+    return true
+  })
+})
+
+const getStructuredSteps = (recipe) => {
+  if (Array.isArray(recipe?.steps_detail) && recipe.steps_detail.length > 0) {
+    return recipe.steps_detail
+  }
+  const raw = String(recipe?.steps || '').trim()
+  if (!raw) return []
+  const chunks = raw
+    .split(/\n+|(?<=\.)\s+/)
+    .map(s => s.replace(/^\d+[\.\)]\s*/, '').trim())
+    .filter(Boolean)
+  return chunks.map((detail, idx) => ({
+    title: `Étape ${idx + 1}`,
+    duration: '',
+    appliance: '',
+    detail,
+  }))
+}
 
 const toBaseQty = (qty, unit) => {
   const n = Number(qty) || 0
@@ -576,8 +738,13 @@ const voteRecipe = async (recipe, nextStatus) => {
   if (error) {
     showToast(`Erreur : ${error.message}`, 'error')
   } else if (nextStatus === 'liked') {
-    showToast(`"${recipe.title}" ajoutée à Mes Recettes`)
+    showToast(`"${recipe.title}" ajoutée à Gardées`)
   }
+}
+
+const restoreFromModal = async (recipe) => {
+  await voteRecipe(recipe, 'liked')
+  selectedRecipe.value = null
 }
 
 const openRecipeDetail = (recipe) => {
@@ -663,7 +830,7 @@ const cookAndDeductStock = async (recipe) => {
 const removeLikedRecipe = async (recipe) => {
   await voteRecipe(recipe, 'disliked')
   selectedRecipe.value = null
-  showToast('Recette retirée (Gemini ne la reproposera plus)')
+  showToast('Recette déplacée dans Refusées')
 }
 
 onMounted(fetchAll)
@@ -704,9 +871,9 @@ onMounted(fetchAll)
 
 .segmented {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-  padding: 5px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  padding: 4px;
   background-color: var(--card-bg);
   border: 1px solid var(--border-color);
   border-radius: 14px;
@@ -714,14 +881,15 @@ onMounted(fetchAll)
 }
 
 .seg-btn {
-  height: 38px;
+  height: 36px;
   border: none;
   border-radius: 10px;
   background: transparent;
   color: var(--text-light);
-  font-size: 0.82rem;
+  font-size: 0.74rem;
   font-weight: 700;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .seg-btn.active {
@@ -736,7 +904,58 @@ onMounted(fetchAll)
   box-shadow: var(--shadow);
 }
 
-/* Carte Tinder + Swipe */
+/* Recherche & Filtres */
+.liked-wrap,
+.disliked-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.search-input {
+  width: 100%;
+  height: 42px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background-color: var(--card-bg);
+  color: var(--text-main);
+  font-size: 0.86rem;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.filter-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.filter-strip::-webkit-scrollbar { display: none; }
+
+.filter-pill {
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background-color: var(--card-bg);
+  color: var(--text-light);
+  font-size: 0.76rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.filter-pill.active {
+  background-color: var(--primary);
+  border-color: var(--primary);
+  color: #ffffff;
+}
+
+/* Carte Tinder */
 .tinder-card {
   position: relative;
   padding: 18px 16px;
@@ -748,9 +967,7 @@ onMounted(fetchAll)
   user-select: none;
 }
 
-.tinder-card.is-dragging {
-  transition: none;
-}
+.tinder-card.is-dragging { transition: none; }
 
 .swipe-stamp {
   position: absolute;
@@ -759,7 +976,6 @@ onMounted(fetchAll)
   border-radius: 10px;
   font-size: 1rem;
   font-weight: 900;
-  letter-spacing: 0.04em;
   border: 3px solid;
   z-index: 5;
   pointer-events: none;
@@ -790,13 +1006,18 @@ onMounted(fetchAll)
 }
 
 .cat-badge {
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   font-weight: 800;
   text-transform: uppercase;
   padding: 3px 8px;
   border-radius: 6px;
   background-color: var(--primary-soft);
   color: var(--primary);
+}
+
+.cat-badge.muted {
+  background-color: var(--input-bg);
+  color: var(--text-light);
 }
 
 .time-pill {
@@ -812,6 +1033,12 @@ onMounted(fetchAll)
   font-size: 1.2rem;
   font-weight: 800;
   line-height: 1.25;
+}
+
+.tinder-summary {
+  font-size: 0.84rem;
+  line-height: 1.45;
+  color: var(--text-main);
 }
 
 .macro-pill {
@@ -838,8 +1065,8 @@ onMounted(fetchAll)
 .ing-preview {
   display: flex;
   flex-direction: column;
-  gap: 7px;
-  padding: 10px 12px;
+  gap: 9px;
+  padding: 12px;
   border-radius: 12px;
   background-color: var(--input-bg);
   border: 1px solid var(--border-color);
@@ -847,7 +1074,7 @@ onMounted(fetchAll)
 
 .ing-line {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   font-size: 0.8rem;
 }
@@ -856,6 +1083,7 @@ onMounted(fetchAll)
   width: 9px;
   height: 9px;
   border-radius: 50%;
+  margin-top: 5px;
   flex-shrink: 0;
 }
 
@@ -863,18 +1091,24 @@ onMounted(fetchAll)
 .ing-dot.partial { background-color: var(--warning); }
 .ing-dot.missing { background-color: var(--danger); }
 
-.ing-text { flex: 1; }
-
-.ing-state-txt {
-  font-size: 0.7rem;
-  font-weight: 700;
-  color: var(--text-light);
+.ing-text-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
-.tinder-steps {
-  font-size: 0.82rem;
-  line-height: 1.48;
+.ing-note {
+  font-size: 0.72rem;
   color: var(--text-light);
+  font-style: italic;
+}
+
+.ing-state-txt {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--text-light);
+  white-space: nowrap;
 }
 
 .tinder-actions {
@@ -911,7 +1145,174 @@ onMounted(fetchAll)
   opacity: 0.75;
 }
 
-/* Modale Génération IA */
+/* Liste Gardées & Refusées */
+.liked-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.liked-row {
+  width: 100%;
+  text-align: left;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+  color: var(--text-main);
+}
+
+.liked-title {
+  font-size: 0.98rem;
+  font-weight: 800;
+}
+
+.liked-summary {
+  font-size: 0.78rem;
+  color: var(--text-light);
+  line-height: 1.38;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.liked-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 0.74rem;
+  color: var(--text-light);
+}
+
+.stock-chip {
+  font-size: 0.7rem;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.stock-chip.ok { background-color: rgba(16, 185, 129, 0.14); color: var(--success); }
+.stock-chip.partial { background-color: rgba(245, 158, 11, 0.14); color: var(--warning); }
+.stock-chip.missing { background-color: rgba(239, 68, 68, 0.14); color: var(--danger); }
+
+.memory-info {
+  font-size: 0.76rem;
+  line-height: 1.4;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background-color: var(--input-bg);
+  border: 1px solid var(--border-color);
+  color: var(--text-light);
+}
+
+.disliked-row {
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.disliked-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.disliked-meta {
+  font-size: 0.72rem;
+  color: var(--text-light);
+}
+
+.restore-btn {
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  background-color: rgba(16, 185, 129, 0.12);
+  color: var(--success);
+  font-size: 0.76rem;
+  font-weight: 800;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+/* Cartes d'étapes flottantes */
+.steps-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.step-card {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background-color: var(--input-bg);
+  border: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.step-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.step-num {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background-color: var(--primary);
+  color: #ffffff;
+  font-size: 0.74rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.step-title {
+  font-size: 0.88rem;
+  font-weight: 800;
+  color: var(--text-main);
+}
+
+.step-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.step-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background-color: var(--card-bg);
+  border: 1px solid var(--border-color);
+  color: var(--text-light);
+}
+
+.step-badge.appliance {
+  background-color: var(--primary-soft);
+  border-color: transparent;
+  color: var(--primary);
+}
+
+.step-detail {
+  font-size: 0.82rem;
+  line-height: 1.48;
+  color: var(--text-main);
+}
+
+/* Modales */
 .gen-group {
   display: flex;
   flex-direction: column;
@@ -955,49 +1356,6 @@ onMounted(fetchAll)
   color: #ffffff;
 }
 
-/* Liste Likées */
-.liked-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.liked-row {
-  width: 100%;
-  text-align: left;
-  padding: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  cursor: pointer;
-  color: var(--text-main);
-}
-
-.liked-title {
-  font-size: 0.98rem;
-  font-weight: 800;
-}
-
-.liked-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  font-size: 0.76rem;
-  color: var(--text-light);
-}
-
-.stock-chip {
-  font-size: 0.7rem;
-  font-weight: 800;
-  padding: 2px 8px;
-  border-radius: 999px;
-}
-
-.stock-chip.ok { background-color: rgba(16, 185, 129, 0.14); color: var(--success); }
-.stock-chip.partial { background-color: rgba(245, 158, 11, 0.14); color: var(--warning); }
-.stock-chip.missing { background-color: rgba(239, 68, 68, 0.14); color: var(--danger); }
-
-/* Modale Détail */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -1058,17 +1416,11 @@ onMounted(fetchAll)
 }
 
 .detail-section h4 {
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   font-weight: 800;
   text-transform: uppercase;
   color: var(--text-light);
   margin-bottom: 8px;
-}
-
-.detail-steps {
-  font-size: 0.84rem;
-  line-height: 1.5;
-  color: var(--text-main);
 }
 
 .detail-actions {

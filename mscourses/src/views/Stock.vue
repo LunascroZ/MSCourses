@@ -353,13 +353,16 @@ const form = ref({
 
 const unitOptions = ['unité(s)', 'g', 'kg', 'L', 'ml', 'lot(s)', 'boîte(s)']
 const categoryOptions = [
-  'Congélateur',
+  'Surgelés',
   'Frigo',
-  'Produit Frais',
+  'Fruits et Légumes',
+  "Boulangerie",
   'Épicerie salée',
   'Épicerie sucrée',
   'Hygiène',
-  "Produits d'entretien",
+  "Entretiens & Maison",
+  "Condiment",
+  "Boissons",
   'Autre',
 ]
 

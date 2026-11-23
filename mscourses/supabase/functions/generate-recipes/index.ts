@@ -45,7 +45,7 @@ serve(async (req: Request) => {
         }
       }
     } catch {
-      // Valeurs par défaut si aucun body
+      // Valeurs par défaut
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
@@ -77,14 +77,15 @@ APPAREILS DISPONIBLES EN CUISINE :
 - Micro-ondes
 - Plaque de cuisson
 - Mixeur plongeur
-Exploite intelligemment ces appareils selon les recettes (Airfryer pour le croustillant, Dolci pour les glaces/desserts sucrés, BlendUp pour smoothies/sauces/pâtes, etc.) et mentionne l'appareil dans les étapes quand c'est pertinent.
+Exploite intelligemment ces appareils selon les recettes et indique toujours les températures, durées et préchauffages précis.
 
 PHILOSOPHIE & CONTRAINTES :
 - ${isCutMode ? "Objectif demandé : Recettes adaptées à la SÈCHE (riches en protéines, calories maîtrisées)." : "Objectif général : Recettes PLAISIR & WEEK-END variées et créatives (pas limitées à un régime de sèche)."}
-- DÉCOUVERTE AVANT TOUT : Ne te limite SURTOUT PAS au stock actuel. Propose des plats variés, des cuisines du monde et de vraies découvertes. Tu peux utiliser quelques produits du stock en bonus, mais priorité absolue à l'envie demandée.
+- DÉCOUVERTE AVANT TOUT : Ne te limite SURTOUT PAS au stock actuel. Propose des plats variés, des cuisines du monde et de vraies découvertes.
 - EXCLUSION STRICTE : JAMAIS de beurre de cacahuète (peanut butter).
 - MÉMOIRE : Inspire-toi du style des recettes LIKÉES, bannis le style des recettes DISLIKÉES, et ne répète JAMAIS un titre déjà proposé.
-- FORMAT INGRÉDIENTS : Utilise des noms d'ingrédients simples et standards (ex: "Filet de poulet", "Oeuf", "Farine", "Lait demi-écrémé", "Riz Basmati") avec des quantités réalistes pour 2 personnes en g, kg, L, ml ou unité(s).
+- INGRÉDIENTS PRÉCIS : Utilise des noms simples pour la corrélation stock ("Filet de poulet", "Oeuf", "Farine", "Lait demi-écrémé", "Riz Basmati") ET ajoute un champ "note" utile dès que nécessaire (ex: "surgelées, incorporer encore gelées", "à décongeler au frigo", "frais", "coupé en dés", "température ambiante").
+- ÉTAPES STRUCTURÉES : Découpe la préparation en 3 à 5 étapes claires avec durée, appareil/température si applicable, et instructions concrètes.
 
 Réponds UNIQUEMENT en JSON valide respectant strictement le schéma demandé.`;
 
@@ -93,7 +94,7 @@ Réponds UNIQUEMENT en JSON valide respectant strictement le schéma demandé.`;
 - Envie / Ambiance : ${vibe}
 - Nombre exact de recettes à générer : ${count}
 
-STOCK ACTUEL (à titre purement indicatif, ne te restreins pas à cette liste) :
+STOCK ACTUEL (indicatif uniquement, ne te limite pas à cette liste) :
 ${stockList || "Non renseigné"}
 
 RECETTES LIKÉES :
@@ -111,12 +112,20 @@ Génère exactement ${count} nouvelles recettes originales au format JSON :
     {
       "title": "Nom court et appétissant",
       "category": "${taste === "Sucré" ? "Sucré" : "Salé"} • ${vibe}",
-      "prep_time": "ex: 20 min",
-      "macros": "ex: ~650 kcal • 38g P",
+      "prep_time": "ex: 25 min",
+      "macros": "ex: ~620 kcal • 38g P",
+      "summary": "Résumé appétissant en 1 à 2 phrases pour la carte Tinder.",
       "ingredients": [
-        { "name": "Ingrédient", "quantity": 200, "unit": "g" }
+        { "name": "Myrtilles", "quantity": 100, "unit": "g", "note": "surgelées, incorporer encore gelées" }
       ],
-      "steps": "Étapes concises en 2 à 4 phrases (mentionne l'appareil utilisé si pertinent)."
+      "steps_detail": [
+        {
+          "title": "Préchauffage & Préparation",
+          "duration": "5 min",
+          "appliance": "Airfryer 180°C",
+          "detail": "Préchauffe l'Airfryer à 180°C pendant 3 min. Coupe le poulet en dés réguliers et enrobe d'épices."
+        }
+      ]
     }
   ]
 }`;
@@ -124,20 +133,20 @@ Génère exactement ${count} nouvelles recettes originales au format JSON :
     const CANDIDATE_MODELS = [
       {
         name: "gemini-3.6-flash",
-        timeoutMs: 38000,
+        timeoutMs: 42000,
         generationConfig: {
           temperature: 0.85,
-          maxOutputTokens: 6000,
+          maxOutputTokens: 8192,
           responseMimeType: "application/json",
           thinkingConfig: { thinkingLevel: "low" },
         },
       },
       {
         name: "gemini-3.8-flash",
-        timeoutMs: 35000,
+        timeoutMs: 38000,
         generationConfig: {
           temperature: 0.85,
-          maxOutputTokens: 6000,
+          maxOutputTokens: 8192,
           responseMimeType: "application/json",
           thinkingConfig: { thinkingLevel: "low" },
         },
@@ -201,15 +210,24 @@ Génère exactement ${count} nouvelles recettes originales au format JSON :
       throw new Error("Aucune recette générée dans le JSON.");
     }
 
-    const rowsToInsert = generated.map((r: any) => ({
-      title: String(r.title || "Recette sans titre").trim(),
-      category: String(r.category || `${taste} • ${vibe}`).trim(),
-      prep_time: String(r.prep_time || "15 min").trim(),
-      macros: String(r.macros || "").trim(),
-      ingredients: Array.isArray(r.ingredients) ? r.ingredients : [],
-      steps: String(r.steps || "").trim(),
-      status: "pending",
-    }));
+    const rowsToInsert = generated.map((r: any) => {
+      const stepsDetail = Array.isArray(r.steps_detail) ? r.steps_detail : [];
+      const fallbackStepsText = stepsDetail
+        .map((s: any, idx: number) => `${idx + 1}. ${s.title ? `${s.title} : ` : ""}${s.detail || ""}`)
+        .join("\n");
+
+      return {
+        title: String(r.title || "Recette sans titre").trim(),
+        category: String(r.category || `${taste} • ${vibe}`).trim(),
+        prep_time: String(r.prep_time || "15 min").trim(),
+        macros: String(r.macros || "").trim(),
+        summary: String(r.summary || "").trim(),
+        ingredients: Array.isArray(r.ingredients) ? r.ingredients : [],
+        steps_detail: stepsDetail,
+        steps: String(r.steps || fallbackStepsText || r.summary || "").trim(),
+        status: "pending",
+      };
+    });
 
     const { data: inserted, error: insertErr } = await supabase
       .from("recipes")
