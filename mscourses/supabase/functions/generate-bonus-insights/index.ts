@@ -140,22 +140,23 @@ Génère le JSON suivant :
 
 const CANDIDATE_MODELS = [
   {
-    name: "gemini-2.5-flash",
+    name: "gemini-3.6-flash",
     timeoutMs: 22000,
     generationConfig: {
       temperature: 0.4,
       maxOutputTokens: 1500,
       responseMimeType: "application/json",
-      thinkingConfig: { thinkingBudget: 0 },
+      thinkingConfig: { thinkingLevel: "low" },
     },
   },
   {
-    name: "gemini-2.0-flash",
+    name: "gemini-3.8-flash",
     timeoutMs: 20000,
     generationConfig: {
       temperature: 0.4,
       maxOutputTokens: 1500,
       responseMimeType: "application/json",
+      thinkingConfig: { thinkingLevel: "low" },
     },
   },
 ];
@@ -201,10 +202,9 @@ for (const cfg of CANDIDATE_MODELS) {
   }
 }
 
-
-    if (!geminiData) {
-      throw new Error(`Échec génération bons plans : ${firstDetailedError}`);
-    }
+if (!geminiData) {
+  throw new Error(`Échec génération bons plans : ${firstDetailedError}`);
+}
 
     const rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!rawText) {

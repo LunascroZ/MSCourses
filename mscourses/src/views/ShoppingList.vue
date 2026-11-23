@@ -1,19 +1,25 @@
 <template>
   <div class="shopping-page">
-    <!-- En-tête & stats rapides -->
+    <!-- En-tête & actions rapides -->
     <div class="page-head">
       <div class="head-left">
         <h2>En Rayon</h2>
         <span v-if="brief?.estimated_time" class="time-pill">⏱️ {{ brief.estimated_time }}</span>
       </div>
-      <button
-        type="button"
-        class="refresh-btn"
-        :disabled="isLoading"
-        @click="refreshAll"
-      >
-        {{ isLoading ? '⏳' : '↻' }} Actualiser
-      </button>
+      <div class="head-actions">
+        <button type="button" class="add-inline-btn" @click="openAddModal">
+          + Article
+        </button>
+        <button
+          type="button"
+          class="refresh-btn"
+          :disabled="isLoading"
+          @click="refreshAll"
+          title="Actualiser"
+        >
+          {{ isLoading ? '⏳' : '↻' }}
+        </button>
+      </div>
     </div>
 
     <!-- Barre de stats -->
@@ -107,7 +113,7 @@
     <!-- État vide -->
     <div v-if="!isLoading && shoppingList.length === 0" class="ms-card empty-card">
       <p class="empty-title">Aucun article en rayon</p>
-      <p class="empty-sub">Lance l'optimisation Gemini depuis l'onglet Brouillon.</p>
+      <p class="empty-sub">Lance l'optimisation Gemini depuis Brouillon ou ajoute un article avec « + Article ».</p>
     </div>
 
     <!-- Cartes par enseigne -->
@@ -154,7 +160,7 @@
                 <button
                   type="button"
                   class="edit-item-btn"
-                  title="Modifier prix, quantité ou magasin"
+                  title="Modifier nom, prix, quantité ou magasin"
                   @click.stop="openEditModal(item)"
                 >
                   ✏️
@@ -237,67 +243,86 @@
       </button>
     </div>
 
-    <!-- Modale d'édition rapide en rayon -->
-    <div v-if="editingItem" class="modal-overlay" @click.self="closeEditModal">
+    <!-- Modale Édition / Ajout de dernière minute -->
+    <div v-if="showItemModal" class="modal-overlay" @click.self="closeItemModal">
       <div class="modal-sheet">
         <div class="modal-head">
-          <h3>Ajuster l'achat</h3>
-          <button type="button" class="modal-close" @click="closeEditModal">✕</button>
+          <h3>{{ editingItem ? "Ajuster l'achat" : 'Article de dernière minute' }}</h3>
+          <button type="button" class="modal-close" @click="closeItemModal">✕</button>
         </div>
 
-        <p class="modal-item-name">{{ editingItem.name }}</p>
+        <form class="modal-form" @submit.prevent="saveItemModal">
+          <div class="field-group">
+            <label>Nom du produit</label>
+            <input
+              v-model="itemForm.name"
+              type="text"
+              required
+              placeholder="Ex: Skyr nature 1kg"
+              class="modal-input"
+            />
+          </div>
 
-        <div class="modal-form">
           <div class="field-group">
             <label>Prix réel payé (€)</label>
             <input
-              v-model.number="editForm.actual_price"
+              v-model.number="itemForm.actual_price"
               type="number"
               step="0.01"
               min="0"
-              placeholder="Ex: 4.50"
+              inputmode="decimal"
+              placeholder="Ex: 3.49 (optionnel)"
               class="modal-input"
             />
           </div>
 
           <div class="field-row-2">
             <div class="field-group">
-              <label>Quantité réelle</label>
+              <label>Quantité</label>
               <input
-                v-model.number="editForm.quantity"
+                v-model.number="itemForm.quantity"
                 type="number"
                 step="any"
                 min="0.01"
+                inputmode="decimal"
                 class="modal-input"
               />
             </div>
             <div class="field-group">
               <label>Unité</label>
-              <select v-model="editForm.unit" class="modal-input">
+              <select v-model="itemForm.unit" class="modal-input">
                 <option v-for="u in unitOptions" :key="u" :value="u">{{ u }}</option>
               </select>
             </div>
           </div>
 
           <div class="field-group">
-            <label>Magasin réel</label>
-            <select v-model="editForm.store" class="modal-input">
+            <label>Magasin</label>
+            <select v-model="itemForm.store" class="modal-input">
               <option v-for="st in allowedStores" :key="st" :value="st">{{ st }}</option>
             </select>
           </div>
 
           <div class="modal-actions">
-            <button type="button" class="btn-cancel" @click="closeEditModal">Annuler</button>
             <button
+              v-if="editingItem"
               type="button"
-              class="btn-save"
-              :disabled="isSavingEdit"
-              @click="saveItemEdit"
+              class="btn-delete"
+              title="Retirer de la liste"
+              @click="deleteEditingItem"
             >
-              {{ isSavingEdit ? 'Enregistrement...' : 'Enregistrer' }}
+              🗑️
+            </button>
+            <button type="button" class="btn-cancel" @click="closeItemModal">Annuler</button>
+            <button
+              type="submit"
+              class="btn-save"
+              :disabled="isSavingModal"
+            >
+              {{ isSavingModal ? 'Enregistrement...' : (editingItem ? 'Enregistrer' : 'Ajouter') }}
             </button>
           </div>
-        </div>
+        </form>
       </div>
     </div>
 
@@ -321,10 +346,12 @@ const selectedStoreFilter = ref('ALL')
 const statusMessage = ref('')
 const statusType = ref('success')
 
-// État modale d'édition rapide
+// État modale édition / ajout
+const showItemModal = ref(false)
 const editingItem = ref(null)
-const isSavingEdit = ref(false)
-const editForm = ref({
+const isSavingModal = ref(false)
+const itemForm = ref({
+  name: '',
   actual_price: null,
   quantity: 1,
   unit: 'unité(s)',
@@ -423,51 +450,106 @@ const getStoreTotal = (items) => {
 
 const totalPanier = computed(() => getStoreTotal(shoppingList.value))
 
+const openAddModal = () => {
+  editingItem.value = null
+  const defaultStore =
+    selectedStoreFilter.value !== 'ALL' && allowedStores.includes(selectedStoreFilter.value)
+      ? selectedStoreFilter.value
+      : 'Leclerc'
+
+  itemForm.value = {
+    name: '',
+    actual_price: null,
+    quantity: 1,
+    unit: 'unité(s)',
+    store: defaultStore,
+  }
+  showItemModal.value = true
+}
+
 const openEditModal = (item) => {
   editingItem.value = item
-  editForm.value = {
-    actual_price: item.actual_price ?? item.estimated_price ?? 0,
+  itemForm.value = {
+    name: item.name || '',
+    actual_price: item.actual_price ?? item.estimated_price ?? null,
     quantity: Number(item.quantity ?? 1) || 1,
     unit: item.unit || 'unité(s)',
     store: allowedStores.includes(item.store) ? item.store : 'Autre',
   }
+  showItemModal.value = true
 }
 
-const closeEditModal = () => {
+const closeItemModal = () => {
+  showItemModal.value = false
   editingItem.value = null
 }
 
-const saveItemEdit = async () => {
-  if (!editingItem.value || isSavingEdit.value) return
-  isSavingEdit.value = true
+const saveItemModal = async () => {
+  if (!itemForm.value.name.trim() || isSavingModal.value) return
+  isSavingModal.value = true
 
   try {
-    const parsedPrice = Number(editForm.value.actual_price)
-    const parsedQty = Number(editForm.value.quantity)
+    const rawPrice = itemForm.value.actual_price
+    const hasPrice = rawPrice !== null && rawPrice !== '' && Number.isFinite(Number(rawPrice)) && Number(rawPrice) >= 0
+    const parsedPrice = hasPrice ? Number(rawPrice) : null
+    const parsedQty = Number(itemForm.value.quantity)
 
     const payload = {
-      actual_price: Number.isFinite(parsedPrice) && parsedPrice >= 0 ? parsedPrice : null,
+      name: itemForm.value.name.trim(),
+      actual_price: parsedPrice,
       quantity: Number.isFinite(parsedQty) && parsedQty > 0 ? parsedQty : 1,
-      unit: editForm.value.unit || 'unité(s)',
-      store: editForm.value.store || 'Autre',
+      unit: itemForm.value.unit || 'unité(s)',
+      store: itemForm.value.store || 'Autre',
     }
 
-    const { error } = await supabase
-      .from('shopping_list')
-      .update(payload)
-      .eq('id', editingItem.value.id)
+    if (editingItem.value) {
+      const { error } = await supabase
+        .from('shopping_list')
+        .update(payload)
+        .eq('id', editingItem.value.id)
 
-    if (error) throw error
+      if (error) throw error
+      Object.assign(editingItem.value, payload)
+      showToast('Article mis à jour')
+    } else {
+      const { data, error } = await supabase
+        .from('shopping_list')
+        .insert([
+          {
+            ...payload,
+            estimated_price: parsedPrice,
+            is_checked: false,
+            reason: 'Ajout manuel en rayon',
+          },
+        ])
+        .select()
+        .single()
 
-    Object.assign(editingItem.value, payload)
-    showToast('Article mis à jour')
-    closeEditModal()
+      if (error) throw error
+      if (data) shoppingList.value.push(data)
+      showToast(`"${payload.name}" ajouté en rayon`)
+    }
+
+    closeItemModal()
   } catch (err) {
-    console.error('Erreur édition article:', err)
+    console.error('Erreur sauvegarde article:', err)
     showToast(`Erreur : ${err?.message || err}`, 'error')
   } finally {
-    isSavingEdit.value = false
+    isSavingModal.value = false
   }
+}
+
+const deleteEditingItem = async () => {
+  if (!editingItem.value || !confirm(`Retirer "${editingItem.value.name}" de la liste ?`)) return
+  const targetId = editingItem.value.id
+  const { error } = await supabase.from('shopping_list').delete().eq('id', targetId)
+  if (error) {
+    showToast(`Erreur : ${error.message}`, 'error')
+    return
+  }
+  shoppingList.value = shoppingList.value.filter(i => i.id !== targetId)
+  closeItemModal()
+  showToast('Article retiré')
 }
 
 const fetchList = async () => {
@@ -665,6 +747,23 @@ onUnmounted(() => {
   font-weight: 800;
 }
 
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.add-inline-btn {
+  padding: 6px 12px;
+  border-radius: 10px;
+  border: none;
+  background-color: var(--primary);
+  color: #ffffff;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 .time-pill {
   font-size: 0.72rem;
   font-weight: 600;
@@ -676,13 +775,14 @@ onUnmounted(() => {
 }
 
 .refresh-btn {
-  padding: 6px 12px;
+  width: 34px;
+  height: 32px;
   border-radius: 10px;
   border: 1px solid var(--border-color);
   background-color: var(--card-bg);
   color: var(--text-main);
-  font-size: 0.78rem;
-  font-weight: 600;
+  font-size: 0.88rem;
+  font-weight: 700;
   cursor: pointer;
 }
 
@@ -717,13 +817,8 @@ onUnmounted(() => {
   color: var(--text-main);
 }
 
-.stat-val.primary {
-  color: var(--primary);
-}
-
-.stat-val.success {
-  color: var(--success);
-}
+.stat-val.primary { color: var(--primary); }
+.stat-val.success { color: var(--success); }
 
 .stat-sep {
   width: 1px;
@@ -1172,7 +1267,7 @@ onUnmounted(() => {
   color: var(--warning);
 }
 
-/* Modale édition rapide */
+/* Modale édition / ajout */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -1200,7 +1295,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 6px;
+  margin-bottom: 12px;
 }
 
 .modal-head h3 {
@@ -1214,14 +1309,9 @@ onUnmounted(() => {
   border-radius: 8px;
   border: 1px solid var(--border-color);
   background-color: var(--input-bg);
+  color: var(--text-main);
   cursor: pointer;
   font-weight: 700;
-}
-
-.modal-item-name {
-  font-size: 0.84rem;
-  color: var(--text-light);
-  margin-bottom: 14px;
 }
 
 .modal-form {
@@ -1257,6 +1347,7 @@ onUnmounted(() => {
   color: var(--text-main);
   font-size: 0.9rem;
   font-weight: 600;
+  width: 100%;
 }
 
 .modal-input:focus {
@@ -1265,22 +1356,33 @@ onUnmounted(() => {
 }
 
 .modal-actions {
-  display: grid;
-  grid-template-columns: 1fr 1.5fr;
-  gap: 10px;
+  display: flex;
+  gap: 8px;
   margin-top: 6px;
 }
 
+.btn-delete {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background-color: rgba(239, 68, 68, 0.12);
+  cursor: pointer;
+}
+
 .btn-cancel {
+  flex: 1;
   height: 44px;
   border-radius: 12px;
   border: 1px solid var(--border-color);
   background-color: var(--input-bg);
+  color: var(--text-main);
   font-weight: 700;
   cursor: pointer;
 }
 
 .btn-save {
+  flex: 1.5;
   height: 44px;
   border-radius: 12px;
   border: none;
@@ -1355,11 +1457,6 @@ onUnmounted(() => {
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
 }
 
-.toast-banner.success {
-  background-color: var(--success);
-}
-
-.toast-banner.error {
-  background-color: var(--danger);
-}
+.toast-banner.success { background-color: var(--success); }
+.toast-banner.error { background-color: var(--danger); }
 </style>

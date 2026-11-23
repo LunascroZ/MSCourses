@@ -8,7 +8,7 @@
       </button>
     </div>
 
-    <!-- Barre de stats façon Inventaire -->
+    <!-- Barre de stats -->
     <section class="stats-bar">
       <div class="stat-box">
         <span class="stat-label">Suivis</span>
@@ -113,10 +113,15 @@
           <div class="stock-controls">
             <div class="qty-stepper">
               <button type="button" class="step-btn" @click="adjustStock(item, -1)">−</button>
-              <span class="qty-val">
+              <button
+                type="button"
+                class="qty-val-btn"
+                title="Appuyer pour ajuster rapidement"
+                @click="openQuickAdjust(item)"
+              >
                 {{ item.current_quantity ?? 0 }}
                 <small>{{ shortUnit(item.unit) }}</small>
-              </span>
+              </button>
               <button type="button" class="step-btn" @click="adjustStock(item, 1)">+</button>
             </div>
 
@@ -152,6 +157,91 @@
         <span v-if="isExporting">⏳ Export vers Brouillon...</span>
         <span v-else>📤 Exporter {{ urgentItems.length }} urgent(s) vers Brouillon</span>
       </button>
+    </div>
+
+    <!-- Modale Ajustement Rapide (tap sur la quantité) -->
+    <div v-if="quickItem" class="modal-overlay" @click.self="closeQuickAdjust">
+      <div class="modal-sheet">
+        <div class="modal-head">
+          <h3>Ajustement rapide</h3>
+          <button type="button" class="modal-close" @click="closeQuickAdjust">✕</button>
+        </div>
+
+        <div class="quick-summary">
+          <span class="quick-name">{{ quickItem.name }}</span>
+          <span class="quick-current">
+            Actuel : <strong>{{ quickItem.current_quantity ?? 0 }} {{ quickItem.unit || 'unité(s)' }}</strong>
+          </span>
+        </div>
+
+        <!-- Raccourcis 1-tap adaptés à l'unité -->
+        <div class="quick-presets">
+          <button
+            v-for="preset in quickPresets"
+            :key="preset.label"
+            type="button"
+            class="preset-btn"
+            @click="applyQuickDelta(preset.delta)"
+          >
+            {{ preset.label }}
+          </button>
+          <button
+            type="button"
+            class="preset-btn empty-preset"
+            @click="setQuickExact(0)"
+          >
+            Vider (0)
+          </button>
+        </div>
+
+        <!-- Mode personnalisé : Retirer / Ajouter / Définir -->
+        <div class="mode-switch">
+          <button
+            type="button"
+            class="mode-btn"
+            :class="{ active: quickMode === 'sub' }"
+            @click="quickMode = 'sub'"
+          >
+            − Retirer
+          </button>
+          <button
+            type="button"
+            class="mode-btn"
+            :class="{ active: quickMode === 'add' }"
+            @click="quickMode = 'add'"
+          >
+            + Ajouter
+          </button>
+          <button
+            type="button"
+            class="mode-btn"
+            :class="{ active: quickMode === 'set' }"
+            @click="quickMode = 'set'"
+          >
+            = Définir
+          </button>
+        </div>
+
+        <form class="quick-input-row" @submit.prevent="submitQuickCustom">
+          <input
+            v-model.number="quickAmount"
+            type="number"
+            step="any"
+            min="0"
+            inputmode="decimal"
+            :placeholder="`Quantité en ${quickItem.unit || 'unité(s)'}`"
+            class="modal-input"
+            autofocus
+          />
+          <button type="submit" class="btn-save quick-apply">
+            OK
+          </button>
+        </form>
+
+        <p v-if="quickPreview !== null" class="quick-preview">
+          Nouveau stock : <strong>{{ quickPreview }} {{ quickItem.unit || 'unité(s)' }}</strong>
+        </p>
+      </div>
     </div>
 
     <!-- Modale Création / Édition -->
@@ -242,6 +332,12 @@ const activeFilter = ref('ALL')
 const toastMsg = ref('')
 const toastType = ref('success')
 
+// État modale ajustement rapide
+const quickItem = ref(null)
+const quickMode = ref('sub') // 'sub' | 'add' | 'set'
+const quickAmount = ref(null)
+
+// État modale création / édition
 const showModal = ref(false)
 const editingId = ref(null)
 const isSaving = ref(false)
@@ -283,7 +379,6 @@ const isUrgent = (item) => {
   return threshold > 0 && current < threshold
 }
 
-// Formule exacte du Google Sheet : multiple supérieur de buy_quantity pour combler le manque
 const computeOrderQty = (item) => {
   const threshold = Number(item.min_threshold ?? 0)
   const current = Number(item.current_quantity ?? 0)
@@ -334,6 +429,87 @@ const groupedInventory = computed(() => {
   }, {})
 })
 
+// Raccourcis dynamiques selon l'unité de l'article
+const quickPresets = computed(() => {
+  if (!quickItem.value) return []
+  const u = (quickItem.value.unit || '').toLowerCase()
+  if (u === 'g' || u === 'ml') {
+    return [
+      { label: `-100 ${u}`, delta: -100 },
+      { label: `-250 ${u}`, delta: -250 },
+      { label: `-500 ${u}`, delta: -500 },
+      { label: `-1000 ${u}`, delta: -1000 },
+    ]
+  }
+  if (u === 'kg' || u === 'l') {
+    return [
+      { label: `-0.5 ${quickItem.value.unit}`, delta: -0.5 },
+      { label: `-1 ${quickItem.value.unit}`, delta: -1 },
+      { label: `-2 ${quickItem.value.unit}`, delta: -2 },
+    ]
+  }
+  return [
+    { label: '-1', delta: -1 },
+    { label: '-2', delta: -2 },
+    { label: '-5', delta: -5 },
+    { label: '-10', delta: -10 },
+  ]
+})
+
+const quickPreview = computed(() => {
+  if (!quickItem.value || quickAmount.value === null || quickAmount.value === '') return null
+  const val = Number(quickAmount.value)
+  if (!Number.isFinite(val) || val < 0) return null
+  const current = Number(quickItem.value.current_quantity ?? 0) || 0
+  if (quickMode.value === 'sub') return Math.max(0, Number((current - val).toFixed(2)))
+  if (quickMode.value === 'add') return Number((current + val).toFixed(2))
+  return Number(val.toFixed(2))
+})
+
+const openQuickAdjust = (item) => {
+  quickItem.value = item
+  quickMode.value = 'sub'
+  quickAmount.value = null
+}
+
+const closeQuickAdjust = () => {
+  quickItem.value = null
+  quickAmount.value = null
+}
+
+const updateStockValue = async (item, nextQty) => {
+  const safeNext = Math.max(0, Number(Number(nextQty).toFixed(2)))
+  item.current_quantity = safeNext
+  const { error } = await supabase
+    .from('inventory')
+    .update({ current_quantity: safeNext, updated_at: new Date().toISOString() })
+    .eq('id', item.id)
+
+  if (error) {
+    showToast(`Erreur : ${error.message}`, 'error')
+  }
+}
+
+const applyQuickDelta = async (delta) => {
+  if (!quickItem.value) return
+  const current = Number(quickItem.value.current_quantity ?? 0) || 0
+  await updateStockValue(quickItem.value, current + delta)
+  showToast(`${quickItem.value.name} → ${quickItem.value.current_quantity} ${quickItem.value.unit || 'u'}`)
+  closeQuickAdjust()
+}
+
+const setQuickExact = async (val) => {
+  if (!quickItem.value) return
+  await updateStockValue(quickItem.value, val)
+  showToast(`${quickItem.value.name} → ${quickItem.value.current_quantity} ${quickItem.value.unit || 'u'}`)
+  closeQuickAdjust()
+}
+
+const submitQuickCustom = async () => {
+  if (!quickItem.value || quickPreview.value === null) return
+  await setQuickExact(quickPreview.value)
+}
+
 const fetchInventory = async () => {
   isLoading.value = true
   try {
@@ -351,13 +527,7 @@ const adjustStock = async (item, delta) => {
   const u = (item.unit || '').toLowerCase()
   const step = u === 'g' || u === 'ml' ? 100 : 1
   const current = Number(item.current_quantity ?? 0) || 0
-  const next = Math.max(0, Number((current + delta * step).toFixed(2)))
-  item.current_quantity = next
-
-  await supabase
-    .from('inventory')
-    .update({ current_quantity: next, updated_at: new Date().toISOString() })
-    .eq('id', item.id)
+  await updateStockValue(item, current + delta * step)
 }
 
 const exportSingleToDraft = async (item) => {
@@ -613,6 +783,7 @@ onUnmounted(() => {
   border-radius: 12px;
   border: 1px solid var(--border-color);
   background-color: var(--card-bg);
+  color: var(--text-main);
   font-size: 0.88rem;
 }
 
@@ -760,41 +931,47 @@ onUnmounted(() => {
 .qty-stepper {
   display: flex;
   align-items: center;
-  height: 34px;
+  height: 36px;
   border-radius: 10px;
   border: 1px solid var(--border-color);
   background-color: var(--input-bg);
   flex: 1;
-  max-width: 170px;
+  max-width: 185px;
 }
 
 .step-btn {
-  width: 36px;
+  width: 38px;
   height: 100%;
   border: none;
   background: transparent;
-  font-size: 1rem;
+  font-size: 1.05rem;
   font-weight: 800;
   color: var(--primary);
   cursor: pointer;
 }
 
-.qty-val {
+.qty-val-btn {
   flex: 1;
-  text-align: center;
+  height: 100%;
+  border: none;
+  border-left: 1px solid var(--border-color);
+  border-right: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-main);
   font-size: 0.84rem;
   font-weight: 800;
+  cursor: pointer;
 }
 
-.qty-val small {
+.qty-val-btn small {
   font-weight: 600;
   color: var(--text-light);
   margin-left: 2px;
 }
 
 .icon-action {
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   border-radius: 9px;
   border: 1px solid var(--border-color);
   background-color: var(--input-bg);
@@ -837,7 +1014,7 @@ onUnmounted(() => {
   opacity: 0.5;
 }
 
-/* Modale */
+/* Modales */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -864,7 +1041,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 
 .modal-head h3 {
@@ -878,8 +1055,99 @@ onUnmounted(() => {
   border-radius: 8px;
   border: 1px solid var(--border-color);
   background-color: var(--input-bg);
+  color: var(--text-main);
   font-weight: 700;
   cursor: pointer;
+}
+
+/* Ajustement rapide */
+.quick-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.quick-name {
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.quick-current {
+  font-size: 0.78rem;
+  color: var(--text-light);
+}
+
+.quick-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.preset-btn {
+  flex: 1 1 auto;
+  min-width: 72px;
+  height: 38px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background-color: var(--input-bg);
+  color: var(--text-main);
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.preset-btn.empty-preset {
+  background-color: rgba(239, 68, 68, 0.14);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: var(--danger);
+}
+
+.mode-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 12px;
+  background-color: var(--input-bg);
+  border: 1px solid var(--border-color);
+  margin-bottom: 10px;
+}
+
+.mode-btn {
+  height: 34px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-light);
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.mode-btn.active {
+  background-color: var(--primary);
+  color: #ffffff;
+}
+
+.quick-input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.quick-apply {
+  flex: 0 0 84px;
+  height: 40px;
+}
+
+.quick-preview {
+  margin-top: 8px;
+  font-size: 0.78rem;
+  color: var(--text-light);
+  text-align: right;
 }
 
 .modal-form {
@@ -918,9 +1186,15 @@ onUnmounted(() => {
   border-radius: 10px;
   border: 1px solid var(--border-color);
   background-color: var(--input-bg);
+  color: var(--text-main);
   font-size: 0.86rem;
   font-weight: 600;
   width: 100%;
+}
+
+.modal-input:focus {
+  outline: none;
+  border-color: var(--primary);
 }
 
 .checkbox-row {
@@ -952,6 +1226,7 @@ onUnmounted(() => {
   border-radius: 12px;
   border: 1px solid var(--border-color);
   background-color: var(--input-bg);
+  color: var(--text-main);
   font-weight: 700;
   cursor: pointer;
 }
