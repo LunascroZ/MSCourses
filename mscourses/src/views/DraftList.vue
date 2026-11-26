@@ -138,6 +138,26 @@
       </div>
     </section>
 
+    <div class="weekly-note-box">
+  <div class="note-head">
+    <label for="weekly-note">🎟️ Bon d'achat / Info semaine (optionnel)</label>
+    <button
+      v-if="weeklyNote"
+      type="button"
+      class="clear-note-btn"
+      @click="weeklyNote = ''"
+    >
+      Effacer
+    </button>
+  </div>
+  <input
+    id="weekly-note"
+    v-model="weeklyNote"
+    type="text"
+    placeholder="Ex: 8€ dès 40€ chez Carrefour, pas le temps d'aller chez Lidl..."
+    class="note-input"
+  />
+</div>
     <!-- Bouton flottant au-dessus de la TabBar -->
     <div class="floating-cta">
       <button
@@ -159,7 +179,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { supabase } from '../supabase'
 import { useSector } from '../composables/useSector'
@@ -294,9 +314,12 @@ const optimizeWithGemini = async () => {
   if (drafts.value.length === 0 || isOptimizing.value) return
   isOptimizing.value = true
 
-  const { error } = await supabase.functions.invoke('generate-shopping-plan', {
-    body: { sector: activeSector.value },
-  })
+ const { data, error } = await supabase.functions.invoke('generate-shopping-plan', {
+  body: {
+    sector: activeSector.value,
+    weekly_note: weeklyNote.value.trim(),
+  },
+})
 
   isOptimizing.value = false
   if (error) {
@@ -315,6 +338,11 @@ const optimizeWithGemini = async () => {
     router.push('/shopping')
   }
 }
+const weeklyNote = ref(localStorage.getItem('mscourses_weekly_note') || '')
+
+watch(weeklyNote, (val) => {
+  localStorage.setItem('mscourses_weekly_note', val)
+})
 
 onMounted(() => {
   fetchDrafts()
@@ -751,5 +779,53 @@ onUnmounted(() => {
 
 .toast-banner.error {
   background-color: var(--danger);
+}
+
+.weekly-note-box {
+  background-color: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.note-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.note-head label {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: var(--primary);
+  text-transform: uppercase;
+}
+
+.clear-note-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-light);
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.note-input {
+  width: 100%;
+  height: 38px;
+  padding: 0 10px;
+  border-radius: 9px;
+  border: 1px solid var(--border-color);
+  background-color: var(--input-bg);
+  color: var(--text-main);
+  font-size: 0.82rem;
+}
+
+.note-input:focus {
+  outline: none;
+  border-color: var(--primary);
 }
 </style>
