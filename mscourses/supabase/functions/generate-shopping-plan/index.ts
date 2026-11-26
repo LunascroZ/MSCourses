@@ -122,9 +122,11 @@ serve(async (req: Request) => {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     let bodySector: string | null = null;
+    let weeklyNote = "";
     try {
       const body = await req.json();
       if (body?.sector) bodySector = String(body.sector);
+      if (body?.weekly_note) weeklyNote = String(body.weekly_note).trim();
     } catch {
       // Pas de body JSON fourni
     }
@@ -151,6 +153,11 @@ serve(async (req: Request) => {
         .from("store_prices")
         .select("sector, store, search_term, product_name, price, unit_price, promo_label")
         .eq("sector", activeSector),
+      supabase
+        .from("recipes")
+        .select("title, ingredients")
+        .eq("status", "liked")
+        .limit(50),
     ]);
 
     if (draftRes.error) throw draftRes.error;
@@ -173,6 +180,27 @@ serve(async (req: Request) => {
     const inventoryItems = inventoryRes.data || [];
     const purchaseHistory = historyRes.data || [];
     const allPrices: StorePriceRow[] = pricesRes.data || [];
+    const inStockNames = new Set(
+  inventoryItems
+    .filter((i: any) => Number(i.current_quantity ?? 0) > 0)
+    .map((i: any) => normalizeKey(i.name))
+);
+const inDraftNames = new Set(draftItems.map((d) => normalizeKey(d.name)));
+
+const likedRecipesContext = (likedRecipesRes.data || [])
+  .map((rec: any) => {
+    const ings = Array.isArray(rec.ingredients) ? rec.ingredients : [];
+    const missing = ings
+      .filter((ing: any) => {
+        const key = normalizeKey(ing.name || "");
+        return key && !inStockNames.has(key) && !inDraftNames.has(key);
+      })
+      .map((ing: any) => `${ing.name} (${ing.quantity ?? 1} ${ing.unit || "unité(s)"})`);
+
+    return missing.length > 0 ? `- Recette "${rec.title}" : manque ${missing.join(", ")}` : null;
+  })
+  .filter(Boolean)
+  .join("\n");
 
     // Agrégation de l'historique des prix réels : dernier prix payé par (produit + enseigne)
     const latestPriceMap = new Map<
@@ -363,13 +391,24 @@ CONSIGNES D'ARBITRAGE, DE SUBSTITUTION ET DE LOGISTIQUE :
   - Pour tout produit alimentaire ou liquide ayant un poids/volume indiqué (ex: barquette 350g, filet 1kg, pack 6x1L), renseigne OBLIGATOIREMENT la quantité et l'unité réelles totales achetées (ex: "quantity": 350, "unit": "g" ou "quantity": 700, "unit": "g" si tu conseilles 2 barquettes ; "quantity": 6, "unit": "L"). Ne mets JAMAIS "1 unité(s)" si le produit a un poids ou un volume.
   - Utilise "unité(s)" uniquement pour les articles comptables sans poids/volume pertinent (ex: boîte de mouchoirs, œufs -> 12 unité(s), sacs poubelle -> 20 unité(s)).
   - Si tu conseilles plusieurs packs/barquettes pour couvrir le besoin du brouillon, indique-le dans "matched_product" (ex: "2x Viande hachée 5% MG Férial 350g") et calcule "total_price" en conséquence.
-
-Ne génère PAS d'idées de recettes ni de veille électroménager/tech : concentre-toi uniquement sur le panier, l'arbitrage magasin par magasin, la tournée et le tableau des alternatives.
+9. Consigne spéciale / Bon de réduction ponctuel de la semaine (Règle du palier rentable) :
+  - Si une "CONSIGNE SPÉCIALE DE LA SEMAINE" comporte un palier d'achat (ex: "8€ dès 40€ d'achat chez Carrefour", "10€ dès 50€ chez Leclerc"), traite-la comme un levier financier prioritaire :
+    * Étape A (Regroupement) : Commence par basculer vers cette enseigne les articles de "draft_list" dont le prix est identique ou légèrement supérieur (jusqu'à +15%) à l'enseigne concurrente, si cela permet d'atteindre ou d'approcher le palier.
+    * Étape B (Complétion intelligente si le panier est entre 75% et 99% du palier, ex: 33€ à 39€ pour un palier à 40€) : Ajoute le minimum d'articles utiles pour franchir juste au-dessus du palier (ex: 40,50€) afin que le coût net après bon (32,50€) soit inférieur au panier initial. Choisis ces compléments STRICTEMENT dans cet ordre de priorité :
+      1. Doubler la quantité d'un produit non-périssable ou congelable déjà présent dans "draft_list" (riz basmati, flocons d'avoine, pâtes complètes, thon, œufs, légumes surgelés, viande à congeler).
+      2. Anticiper un article de "inventory" (suivi en stock) dont le stock actuel est proche de son seuil minimum ("min") ou un produit d'hygiène/entretien à forte rotation.
+      3. Sélectionner une offre forte de "PROMOS CATALOGUES ANTI-CRISE" disponible dans cette même enseigne sur un produit utile au foyer.
+      4. Ajouter un ingrédient manquant d'une "RECETTE GARDÉE (LIKÉE)" si cela permet de débloquer une recette complète pour la semaine.
+    * Traçabilité : Pour tout article ajouté ou doublé uniquement pour franchir le palier, préfixe son champ "reason" par "[Complément palier bon d'achat]" et détaille le calcul net (ex: "Panier passé de 36,20€ à 40,40€ -> 32,40€ net après bon de 8€"). Déduis le montant du bon dans "estimated_savings" et explique l'opération dans "logistics_arbitrage".
+  Ne génère PAS d'idées de recettes ni de veille électroménager/tech : concentre-toi uniquement sur le panier, l'arbitrage magasin par magasin, la tournée et le tableau des alternatives.
 Réponds UNIQUEMENT en JSON valide respectant strictement le schéma demandé.`;
 
     const userPrompt = `SECTEUR : ${activeSector}
-BESOINS (draft_list) : ${JSON.stringify(compactDrafts)}
-STOCK ACTUEL (inventory) : ${JSON.stringify(compactInventory)}
+    CONSIGNE SPÉCIALE DE LA SEMAINE (Bons d'achat / Contraintes ponctuelles) : ${weeklyNote || "Aucune consigne ponctuelle cette semaine."}
+    INGRÉDIENTS MANQUANTS DES RECETTES GARDÉES (LIKÉES) (optionnel pour compléter un palier de bon d'achat) : ${likedRecipesContext || "Aucun ingrédient manquant sur les recettes gardées."}
+    BESOINS (draft_list) : ${JSON.stringify(compactDrafts)}
+    STOCK ACTUEL (inventory) : ${JSON.stringify(compactInventory)}
+
 
 HISTORIQUE DES PRIX RÉELS PAYÉS EN MAGASIN (Lidl, Action, Grand Frais, Aldi, Leclerc, etc.) :
 ${realHistoryContext || "Aucun historique de prix réel enregistré pour le moment."}
