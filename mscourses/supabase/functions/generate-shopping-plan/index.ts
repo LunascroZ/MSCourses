@@ -141,7 +141,7 @@ serve(async (req: Request) => {
       configRows?.[0]?.active_sector ||
       "Thionville/Terville";
 
-    const [draftRes, inventoryRes, historyRes, pricesRes] = await Promise.all([
+    const [draftRes, inventoryRes, historyRes, pricesRes, likedRecipesRes] = await Promise.all([
       supabase.from("draft_list").select("*").order("created_at", { ascending: true }),
       supabase.from("inventory").select("*"),
       supabase
@@ -157,7 +157,7 @@ serve(async (req: Request) => {
         .from("recipes")
         .select("title, ingredients")
         .eq("status", "liked")
-        .limit(50),
+        .limit(30),
     ]);
 
     if (draftRes.error) throw draftRes.error;
@@ -180,27 +180,29 @@ serve(async (req: Request) => {
     const inventoryItems = inventoryRes.data || [];
     const purchaseHistory = historyRes.data || [];
     const allPrices: StorePriceRow[] = pricesRes.data || [];
+
+    // Ingrédients manquants sur les recettes gardées (liked)
     const inStockNames = new Set(
-  inventoryItems
-    .filter((i: any) => Number(i.current_quantity ?? 0) > 0)
-    .map((i: any) => normalizeKey(i.name))
-);
-const inDraftNames = new Set(draftItems.map((d) => normalizeKey(d.name)));
+      inventoryItems
+        .filter((i: any) => Number(i.current_quantity ?? 0) > 0)
+        .map((i: any) => normalizeKey(i.name))
+    );
+    const inDraftNames = new Set(draftItems.map((d) => normalizeKey(d.name)));
 
-const likedRecipesContext = (likedRecipesRes.data || [])
-  .map((rec: any) => {
-    const ings = Array.isArray(rec.ingredients) ? rec.ingredients : [];
-    const missing = ings
-      .filter((ing: any) => {
-        const key = normalizeKey(ing.name || "");
-        return key && !inStockNames.has(key) && !inDraftNames.has(key);
+    const likedRecipesContext = (likedRecipesRes.data || [])
+      .map((rec: any) => {
+        const ings = Array.isArray(rec.ingredients) ? rec.ingredients : [];
+        const missing = ings
+          .filter((ing: any) => {
+            const key = normalizeKey(ing.name || "");
+            return key && !inStockNames.has(key) && !inDraftNames.has(key);
+          })
+          .map((ing: any) => `${ing.name} (${ing.quantity ?? 1} ${ing.unit || "unité(s)"})`);
+
+        return missing.length > 0 ? `- Recette "${rec.title}" : manque ${missing.join(", ")}` : null;
       })
-      .map((ing: any) => `${ing.name} (${ing.quantity ?? 1} ${ing.unit || "unité(s)"})`);
-
-    return missing.length > 0 ? `- Recette "${rec.title}" : manque ${missing.join(", ")}` : null;
-  })
-  .filter(Boolean)
-  .join("\n");
+      .filter(Boolean)
+      .join("\n");
 
     // Agrégation de l'historique des prix réels : dernier prix payé par (produit + enseigne)
     const latestPriceMap = new Map<
@@ -400,15 +402,19 @@ CONSIGNES D'ARBITRAGE, DE SUBSTITUTION ET DE LOGISTIQUE :
       3. Sélectionner une offre forte de "PROMOS CATALOGUES ANTI-CRISE" disponible dans cette même enseigne sur un produit utile au foyer.
       4. Ajouter un ingrédient manquant d'une "RECETTE GARDÉE (LIKÉE)" si cela permet de débloquer une recette complète pour la semaine.
     * Traçabilité : Pour tout article ajouté ou doublé uniquement pour franchir le palier, préfixe son champ "reason" par "[Complément palier bon d'achat]" et détaille le calcul net (ex: "Panier passé de 36,20€ à 40,40€ -> 32,40€ net après bon de 8€"). Déduis le montant du bon dans "estimated_savings" et explique l'opération dans "logistics_arbitrage".
-  Ne génère PAS d'idées de recettes ni de veille électroménager/tech : concentre-toi uniquement sur le panier, l'arbitrage magasin par magasin, la tournée et le tableau des alternatives.
+
+Ne génère PAS d'idées de recettes ni de veille électroménager/tech : concentre-toi uniquement sur le panier, l'arbitrage magasin par magasin, la tournée et le tableau des alternatives.
 Réponds UNIQUEMENT en JSON valide respectant strictement le schéma demandé.`;
 
     const userPrompt = `SECTEUR : ${activeSector}
-    CONSIGNE SPÉCIALE DE LA SEMAINE (Bons d'achat / Contraintes ponctuelles) : ${weeklyNote || "Aucune consigne ponctuelle cette semaine."}
-    INGRÉDIENTS MANQUANTS DES RECETTES GARDÉES (LIKÉES) (optionnel pour compléter un palier de bon d'achat) : ${likedRecipesContext || "Aucun ingrédient manquant sur les recettes gardées."}
-    BESOINS (draft_list) : ${JSON.stringify(compactDrafts)}
-    STOCK ACTUEL (inventory) : ${JSON.stringify(compactInventory)}
+CONSIGNE SPÉCIALE DE LA SEMAINE (Bons d'achat / Contraintes ponctuelles) :
+${weeklyNote || "Aucune consigne ponctuelle cette semaine."}
 
+BESOINS (draft_list) : ${JSON.stringify(compactDrafts)}
+STOCK ACTUEL (inventory) : ${JSON.stringify(compactInventory)}
+
+INGRÉDIENTS MANQUANTS DES RECETTES GARDÉES (LIKÉES) (optionnel pour compléter un palier de bon d'achat) :
+${likedRecipesContext || "Aucun ingrédient manquant sur les recettes gardées."}
 
 HISTORIQUE DES PRIX RÉELS PAYÉS EN MAGASIN (Lidl, Action, Grand Frais, Aldi, Leclerc, etc.) :
 ${realHistoryContext || "Aucun historique de prix réel enregistré pour le moment."}
